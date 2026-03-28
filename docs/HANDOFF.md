@@ -2,14 +2,14 @@
 
 ## Current Direction
 
-DustBunny is the public extraction of the Bunny CLI that previously lived inside Back Office. The public repo is intentionally limited to Magic Containers, DNS, Pull Zones, and health checks.
+DustBunny is the public extraction of the Bunny CLI that previously lived inside Back Office. The public repo now includes the full public-safe command surface, including experimental Bunny Database support.
 
 ## Completed
 
 - Created standalone CLI package in `bin/dustbunny.mjs`
 - Added focused public-safe test coverage in `test/dustbunny.test.mjs`
 - Added package metadata, README, license, and local agent instructions
-- Excluded Bunny Database control-plane functionality because it depended on undocumented or private API surfaces
+- Restored Bunny Database functionality from the original CLI, while keeping the repo free of local secrets and private Back Office context
 
 ## Pending
 
@@ -21,7 +21,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - Single-file CLI for easy inspection and low setup overhead
 - Direct Bunny API calls using `fetch`
 - No dependency on Back Office modules, configs, or docs
-- No database command surface in the public repo
+- Database command surface is included and explicitly documented as experimental because Bunny may change those APIs
 
 ## Read First
 

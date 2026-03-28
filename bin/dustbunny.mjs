@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { resolve } from 'path';
+import { dirname, resolve } from 'path';
+import { createHash } from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const CONFIG_PATH = resolve(process.env.HOME || '', '.config/bunnynet.json');
 const API_BASE = 'https://api.bunny.net';
+const DATABASE_API_BASE = 'https://api.bunny.net/database';
+const DATABASE_PRIVATE_SPEC_URL = 'https://api.bunny.net/database/docs/private/api.json';
+const DEFAULT_SPEC_CACHE_PATH = resolve(process.env.HOME || '', '.cache/bunny-cli/bunny-database-private-api.json');
 
 class CliError extends Error {}
 
@@ -29,6 +33,25 @@ function loadConfig(configPath = CONFIG_PATH) {
 
 function getApiKey({ env = process.env, config = loadConfig() } = {}) {
   return env.BUNNY_API_KEY || config.profiles?.default?.api_key || null;
+}
+
+function getDatabaseAccessKey({ env = process.env, config = loadConfig(), apiKey = getApiKey({ env, config }) } = {}) {
+  return env.BUNNY_DB_ACCESS_KEY || config.profiles?.default?.db_access_key || apiKey || null;
+}
+
+function getDatabaseBearerToken({ env = process.env, config = loadConfig() } = {}) {
+  return env.BUNNY_DB_BEARER_TOKEN || config.profiles?.default?.db_bearer_token || null;
+}
+
+function getDatabaseSpecCachePath({ env = process.env, config = loadConfig() } = {}) {
+  return env.BUNNY_DB_SPEC_CACHE || config.profiles?.default?.db_spec_cache || DEFAULT_SPEC_CACHE_PATH;
+}
+
+function parseCsv(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function pad(value, width) {
@@ -183,14 +206,231 @@ function formatSpecSummary(spec) {
   ].join('\n');
 }
 
-function normalizeDesiredContainerTemplates(desired) {
-  if (Array.isArray(desired.containerTemplates) && desired.containerTemplates.length > 0) {
-    return desired.containerTemplates;
+function getDatabaseUrlGroupId(db) {
+  const match = db?.url?.match(/^libsql:\/\/([^-]+)-/);
+  return match ? `group_${match[1]}` : null;
+}
+
+function buildSqlPipelineUrl(url) {
+  if (!url) fail('Database URL is required to execute SQL.');
+  if (url.startsWith('https://')) {
+    return url.endsWith('/v2/pipeline') ? url : `${url.replace(/\/$/, '')}/v2/pipeline`;
   }
-  if (desired.containerTemplate) {
-    return [desired.containerTemplate];
+  if (url.startsWith('libsql://')) {
+    return `${url.replace(/^libsql:\/\//, 'https://').replace(/\/$/, '')}/v2/pipeline`;
   }
-  fail('App spec must include containerTemplates or containerTemplate.');
+  fail(`Unsupported database URL format: ${url}`);
+}
+
+function parseSqlApiValue(value) {
+  if (value === null) return { type: 'null', value: null };
+  if (typeof value === 'number' && Number.isInteger(value)) return { type: 'integer', value: String(value) };
+  if (typeof value === 'number') return { type: 'float', value: String(value) };
+  if (typeof value === 'boolean') return { type: 'integer', value: value ? '1' : '0' };
+  return { type: 'text', value: String(value) };
+}
+
+function normalizeSqlResult(result) {
+  const execute = result?.response?.result;
+  if (!execute) return result;
+  const columns = (execute.cols || []).map((column) => column.name);
+  const rows = (execute.rows || []).map((row) => {
+    const item = {};
+    row.forEach((cell, index) => {
+      item[columns[index] || `col_${index + 1}`] = cell?.value ?? null;
+    });
+    return item;
+  });
+  return {
+    columns,
+    rows,
+    affected_row_count: execute.affected_row_count,
+    last_insert_rowid: execute.last_insert_rowid,
+    replication_index: execute.replication_index,
+  };
+}
+
+function buildSqlRequests(sql, argsJson, { close = true } = {}) {
+  const args = argsJson ? JSON.parse(argsJson).map((value) => parseSqlApiValue(value)) : undefined;
+  const requests = [{
+    type: 'execute',
+    stmt: {
+      sql,
+      ...(args ? { args } : {}),
+    },
+  }];
+  if (close) requests.push({ type: 'close' });
+  return requests;
+}
+
+function sha256(text) {
+  return createHash('sha256').update(text).digest('hex');
+}
+
+function readCachedDatabaseSpec(cachePath) {
+  if (!cachePath || !existsSync(cachePath)) return null;
+  const content = readFileSync(cachePath, 'utf8');
+  const parsed = JSON.parse(content);
+  const stat = statSync(cachePath);
+  return {
+    path: cachePath,
+    fetchedAt: parsed.fetchedAt || stat.mtime.toISOString(),
+    specUrl: parsed.specUrl || DATABASE_PRIVATE_SPEC_URL,
+    hash: parsed.hash || sha256(JSON.stringify(parsed.spec || {})),
+    spec: parsed.spec || parsed,
+  };
+}
+
+async function fetchLatestDatabaseSpec(fetchImpl = fetch) {
+  const response = await fetchImpl(DATABASE_PRIVATE_SPEC_URL, {
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new CliError(`HTTP ${response.status} GET ${DATABASE_PRIVATE_SPEC_URL}\n${text}`);
+  }
+  let spec;
+  try {
+    spec = JSON.parse(text);
+  } catch (error) {
+    throw new CliError(`Failed to parse Bunny DB private API spec: ${error.message}`);
+  }
+  return {
+    fetchedAt: new Date().toISOString(),
+    specUrl: DATABASE_PRIVATE_SPEC_URL,
+    hash: sha256(text),
+    spec,
+  };
+}
+
+function writeDatabaseSpecCache(cachePath, payload) {
+  mkdirSync(dirname(cachePath), { recursive: true });
+  writeFileSync(cachePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+}
+
+function getOperationFromSpec(spec, method, path) {
+  const specPath = spec?.paths?.[path];
+  if (!specPath) return null;
+  return specPath[String(method || '').toLowerCase()] || null;
+}
+
+function mapDatabasePathToSpecPath(path) {
+  const cleaned = String(path || '').replace(/\?.*$/, '');
+  if (/^\/v2\/databases\/[^/]+\/auth\/generate$/.test(cleaned)) return '/v2/databases/{db_id}/auth/generate';
+  if (/^\/v2\/databases\/[^/]+\/auth\/revoke$/.test(cleaned)) return '/v2/databases/{db_id}/auth/revoke';
+  if (/^\/v2\/databases\/[^/]+\/statistics$/.test(cleaned)) return '/v2/databases/{db_id}/statistics';
+  if (/^\/v2\/databases\/[^/]+\/usage$/.test(cleaned)) return '/v2/databases/{db_id}/usage';
+  if (/^\/v2\/databases\/[^/]+$/.test(cleaned)) return '/v2/databases/{db_id}';
+  if (/^\/v1\/databases\/[^/]+\/auth\/invalidate$/.test(cleaned)) return '/v1/databases/{db_id}/auth/invalidate';
+  if (/^\/v1\/databases\/[^/]+\/auth\/tokens$/.test(cleaned)) return '/v1/databases/{db_id}/auth/tokens';
+  if (/^\/v1\/databases\/[^/]+\/fork$/.test(cleaned)) return '/v1/databases/{db_id}/fork';
+  if (/^\/v1\/databases\/[^/]+\/list_versions$/.test(cleaned)) return '/v1/databases/{db_id}/list_versions';
+  if (/^\/v1\/databases\/[^/]+\/restore$/.test(cleaned)) return '/v1/databases/{db_id}/restore';
+  if (/^\/v1\/databases\/[^/]+$/.test(cleaned)) return '/v1/databases/{db_id}';
+  if (/^\/v1\/groups\/[^/]+\/aggregated_usage$/.test(cleaned)) return '/v1/groups/{group_id}/aggregated_usage';
+  if (/^\/v1\/groups\/[^/]+\/auth\/generate$/.test(cleaned)) return '/v1/groups/{group_id}/auth/generate';
+  if (/^\/v1\/groups\/[^/]+\/stats$/.test(cleaned)) return '/v1/groups/{group_id}/stats';
+  if (/^\/v1\/groups\/[^/]+$/.test(cleaned)) return '/v1/groups/{group_id}';
+  return cleaned;
+}
+
+function buildDatabaseSpecDriftMessage({ method, path, cached, latest }) {
+  const specPath = mapDatabasePathToSpecPath(path);
+  const cachedOp = getOperationFromSpec(cached?.spec, method, specPath);
+  const latestOp = getOperationFromSpec(latest?.spec, method, specPath);
+  const lines = [];
+
+  lines.push(`Checked Bunny DB private API spec: ${DATABASE_PRIVATE_SPEC_URL}`);
+  if (cached?.path) {
+    lines.push(`Local spec cache: ${cached.path}`);
+  }
+  if (!cached) {
+    lines.push('No local spec cache was present before this failure.');
+  } else if (cached.hash !== latest.hash) {
+    lines.push(`Spec changed since cache: ${cached.hash.slice(0, 12)} -> ${latest.hash.slice(0, 12)}`);
+  } else {
+    lines.push(`Spec hash unchanged: ${latest.hash.slice(0, 12)}`);
+  }
+
+  if (!latest?.spec?.paths?.[specPath]) {
+    lines.push(`Current spec no longer exposes path ${specPath}.`);
+  } else if (!latestOp) {
+    lines.push(`Current spec exposes ${specPath}, but not method ${String(method).toUpperCase()}.`);
+  } else {
+    lines.push(`Current spec still exposes ${String(method).toUpperCase()} ${specPath}.`);
+  }
+
+  if (cached && cachedOp && !latestOp) {
+    lines.push('The cached spec had this operation but the latest spec does not. The CLI likely needs an update.');
+  } else if (cached && !cachedOp && latestOp) {
+    lines.push('The latest spec now exposes this operation even though the cached spec did not.');
+  }
+
+  return lines.join('\n');
+}
+
+async function refreshDatabaseSpecCache(client, { quiet = false } = {}) {
+  const payload = await fetchLatestDatabaseSpec(client.fetchImpl);
+  writeDatabaseSpecCache(client.dbSpecCachePath, payload);
+  if (!quiet) {
+    client.stdout.write(`${JSON.stringify({
+      cachePath: client.dbSpecCachePath,
+      fetchedAt: payload.fetchedAt,
+      hash: payload.hash,
+      pathCount: Object.keys(payload.spec?.paths || {}).length,
+    }, null, 2)}\n`);
+  }
+  return payload;
+}
+
+async function showDatabaseSpecCacheStatus(client) {
+  const cached = readCachedDatabaseSpec(client.dbSpecCachePath);
+  if (!cached) {
+    client.stdout.write(`${JSON.stringify({
+      cachePath: client.dbSpecCachePath,
+      present: false,
+      specUrl: DATABASE_PRIVATE_SPEC_URL,
+    }, null, 2)}\n`);
+    return;
+  }
+
+  client.stdout.write(`${JSON.stringify({
+    cachePath: cached.path,
+    present: true,
+    fetchedAt: cached.fetchedAt,
+    hash: cached.hash,
+    pathCount: Object.keys(cached.spec?.paths || {}).length,
+    specUrl: cached.specUrl,
+  }, null, 2)}\n`);
+}
+
+function shouldCheckDatabaseSpec(error, argv) {
+  if (!(error instanceof CliError)) return false;
+  if (argv[0] !== 'db') return false;
+  return /HTTP \d+ .*\/(v1|v2)\//.test(error.message);
+}
+
+async function enrichDatabaseFailureWithSpec(client, argv, error) {
+  if (!shouldCheckDatabaseSpec(error, argv)) return error;
+  const match = error.message.match(/HTTP \d+ ([A-Z]+) (\/(?:v1|v2)\/[^\n]+)/);
+  if (!match) return error;
+
+  const [, method, path] = match;
+  let cached = null;
+  try {
+    cached = readCachedDatabaseSpec(client.dbSpecCachePath);
+  } catch {
+    cached = null;
+  }
+
+  try {
+    const latest = await refreshDatabaseSpecCache(client, { quiet: true });
+    return new CliError(`${error.message}\n\n${buildDatabaseSpecDriftMessage({ method, path, cached, latest })}`);
+  } catch (specError) {
+    return new CliError(`${error.message}\n\nChecked Bunny DB private API spec, but refresh failed: ${specError.message}`);
+  }
 }
 
 function createApiClient({
@@ -202,11 +442,15 @@ function createApiClient({
   const apiKey = getApiKey({ env, config });
   if (!apiKey) fail('No Bunny API key found. Set BUNNY_API_KEY or configure ~/.config/bunnynet.json');
 
-  async function request(method, path, body) {
-    const response = await fetchImpl(`${API_BASE}${path}`, {
+  const dbAccessKey = getDatabaseAccessKey({ env, config, apiKey });
+  const dbBearerToken = getDatabaseBearerToken({ env, config });
+  const dbSpecCachePath = getDatabaseSpecCachePath({ env, config });
+
+  async function request(baseUrl, method, path, body, extraHeaders = {}) {
+    const response = await fetchImpl(`${baseUrl}${path}`, {
       method,
       headers: {
-        AccessKey: apiKey,
+        ...extraHeaders,
         'Content-Type': 'application/json',
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -233,11 +477,19 @@ function createApiClient({
   return {
     stdout,
     config,
-    get: (path) => request('GET', path),
-    post: (path, body) => request('POST', path, body),
-    put: (path, body) => request('PUT', path, body),
-    patch: (path, body) => request('PATCH', path, body),
-    delete: (path) => request('DELETE', path),
+    get: (path) => request(API_BASE, 'GET', path, undefined, { AccessKey: apiKey }),
+    post: (path, body) => request(API_BASE, 'POST', path, body, { AccessKey: apiKey }),
+    put: (path, body) => request(API_BASE, 'PUT', path, body, { AccessKey: apiKey }),
+    patch: (path, body) => request(API_BASE, 'PATCH', path, body, { AccessKey: apiKey }),
+    delete: (path) => request(API_BASE, 'DELETE', path, undefined, { AccessKey: apiKey }),
+    dbGet: (path) => request(DATABASE_API_BASE, 'GET', path, undefined, { AccessKey: dbAccessKey }),
+    dbPatch: (path, body) => request(DATABASE_API_BASE, 'PATCH', path, body, { AccessKey: dbAccessKey }),
+    dbPut: (path, body) => request(DATABASE_API_BASE, 'PUT', path, body, { AccessKey: dbAccessKey }),
+    dbPost: (path, body) => request(DATABASE_API_BASE, 'POST', path, body, { AccessKey: dbAccessKey }),
+    dbDelete: (path) => request(DATABASE_API_BASE, 'DELETE', path, undefined, { AccessKey: dbAccessKey }),
+    fetchImpl,
+    dbBearerToken,
+    dbSpecCachePath,
   };
 }
 
@@ -278,6 +530,16 @@ async function showApp(client, id, { json = false } = {}) {
 async function exportAppSpec(client, id) {
   const app = await getApp(client, id);
   client.stdout.write(`${JSON.stringify(buildAppSpec(app), null, 2)}\n`);
+}
+
+function normalizeDesiredContainerTemplates(desired) {
+  if (Array.isArray(desired.containerTemplates) && desired.containerTemplates.length > 0) {
+    return desired.containerTemplates;
+  }
+  if (desired.containerTemplate) {
+    return [desired.containerTemplate];
+  }
+  fail('App spec must include containerTemplates or containerTemplate.');
 }
 
 async function createApp(client, name, imageRef, registryId, port = '3000', envFile) {
@@ -715,9 +977,383 @@ async function healthCheck(client, url, { fetchImpl = fetch } = {}) {
   }
 }
 
+async function getAllDatabases(client) {
+  const data = await client.dbGet('/v1/databases');
+  return data.databases || data.items || [];
+}
+
+async function getDatabaseConfig(client) {
+  return client.dbGet('/v1/config');
+}
+
+function formatIsoDate(value) {
+  if (!value) fail('A date/time value is required.');
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    fail(`Invalid date/time value: ${value}`);
+  }
+  return date.toISOString();
+}
+
+async function listDatabases(client) {
+  printExperimentalWarning(client);
+  const databases = await getAllDatabases(client);
+  if (databases.length === 0) {
+    client.stdout.write('No Bunny databases found.\n');
+    return;
+  }
+
+  client.stdout.write('\n');
+  for (const database of databases) {
+    client.stdout.write(`  ${pad(database.id, 28)} ${pad(database.name, 22)} ${pad(database.group_id || getDatabaseUrlGroupId(database) || '-', 34)} ${database.url || ''}\n`);
+  }
+  client.stdout.write('\n');
+}
+
+async function showDatabaseLimits(client) {
+  printExperimentalWarning(client);
+  const limits = await client.dbGet('/v1/config/limits');
+  client.stdout.write(`${JSON.stringify(limits, null, 2)}\n`);
+}
+
+async function resolveDatabaseIdentifier(client, identifier) {
+  if (!identifier) fail('Database identifier is required.');
+  const databases = await getAllDatabases(client);
+  const database = databases.find((db) =>
+    db.id === identifier
+    || db.name === identifier
+    || db.group_id === identifier
+    || db.url === identifier
+    || getDatabaseUrlGroupId(db) === identifier
+  );
+  if (!database) fail(`Database not found for identifier: ${identifier}`);
+  return database;
+}
+
+async function getDatabaseDetails(client, identifier) {
+  const database = await resolveDatabaseIdentifier(client, identifier);
+  const response = await client.dbGet(`/v2/databases/${database.id}`);
+  return response.db || response;
+}
+
+async function getDatabaseGroup(client, identifier) {
+  const database = await resolveDatabaseIdentifier(client, identifier);
+  const groupId = database.group_id || getDatabaseUrlGroupId(database);
+  if (!groupId) fail(`Could not resolve a database group for ${identifier}`);
+  const response = await client.dbGet(`/v1/groups/${groupId}`);
+  return response.group || response;
+}
+
+async function showDatabaseGroup(client, identifier) {
+  printExperimentalWarning(client);
+  const group = await getDatabaseGroup(client, identifier);
+  client.stdout.write(`${JSON.stringify(group, null, 2)}\n`);
+}
+
+function printExperimentalWarning(client) {
+  client.stdout.write('Experimental Bunny Database control-plane command. Bunny warned these endpoints may change.\n');
+}
+
+async function showDatabaseSpec(client, identifier) {
+  printExperimentalWarning(client);
+  const [database, group] = await Promise.all([
+    getDatabaseDetails(client, identifier),
+    getDatabaseGroup(client, identifier),
+  ]);
+  client.stdout.write(`${JSON.stringify({ database, group }, null, 2)}\n`);
+}
+
+async function createDatabase(client, name, primaryRegion, storageRegion, replicaCsv = '') {
+  printExperimentalWarning(client);
+  if (!name) fail('Usage: db create <name> [primaryRegion] [storageRegion] [replicaCsv]');
+  const config = await getDatabaseConfig(client);
+  const resolvedPrimary = primaryRegion
+    ? parseCsv(primaryRegion)
+    : [config.primary_regions?.[0]?.id].filter(Boolean);
+  const resolvedStorage = storageRegion || config.storage_region_available?.[0]?.id;
+  if (resolvedPrimary.length === 0 || !resolvedStorage) {
+    fail('Could not resolve default Bunny Database regions from /database/v1/config.');
+  }
+
+  const result = await client.dbPost('/v2/databases', {
+    name,
+    primary_regions: resolvedPrimary,
+    replicas_regions: parseCsv(replicaCsv),
+    storage_region: resolvedStorage,
+  });
+  const createdId = result.db_id || result.id;
+  if (!createdId) {
+    client.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    fail('Database was created but Bunny did not return a database id.');
+  }
+
+  const database = await getDatabaseDetails(client, createdId);
+  client.stdout.write(`${JSON.stringify(database, null, 2)}\n`);
+}
+
+async function generateDatabaseToken(client, identifier, authorization = 'full-access') {
+  printExperimentalWarning(client);
+  if (!['full-access', 'read-only'].includes(authorization)) {
+    fail('Authorization must be full-access or read-only.');
+  }
+  const database = await resolveDatabaseIdentifier(client, identifier);
+  const result = await client.dbPut(`/v2/databases/${database.id}/auth/generate`, { authorization });
+  if (!result.token) {
+    client.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    fail('Token generation succeeded but Bunny did not return a token.');
+  }
+  client.stdout.write(`${result.token}\n`);
+}
+
+async function generateDatabaseGroupToken(client, identifier, authorization = 'full-access') {
+  printExperimentalWarning(client);
+  if (!['full-access', 'read-only'].includes(authorization)) {
+    fail('Authorization must be full-access or read-only.');
+  }
+  const group = await getDatabaseGroup(client, identifier);
+  const result = await client.dbPost(`/v1/groups/${group.id}/auth/generate`, { authorization });
+  if (!result.token) {
+    client.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    fail('Group token generation succeeded but Bunny did not return a token.');
+  }
+  client.stdout.write(`${result.token}\n`);
+}
+
+async function deleteDatabase(client, identifier) {
+  printExperimentalWarning(client);
+  const database = await resolveDatabaseIdentifier(client, identifier);
+  await client.dbDelete(`/v2/databases/${database.id}`);
+  client.stdout.write(`Deleted database ${database.name} (${database.id}).\n`);
+}
+
+async function setDatabaseRegions(client, identifier, primaryCsv, storageRegion, replicaCsv = '') {
+  printExperimentalWarning(client);
+  const group = await getDatabaseGroup(client, identifier);
+  const payload = {
+    primary_regions: primaryCsv === '-' ? (group.primary_regions || []) : parseCsv(primaryCsv),
+    storage_region: storageRegion === '-' ? group.storage_region : storageRegion,
+    replicas_regions: replicaCsv === '-' ? (group.replicas_regions || []) : parseCsv(replicaCsv),
+  };
+
+  if (payload.primary_regions.length === 0) {
+    fail('At least one primary region is required.');
+  }
+  if (!payload.storage_region) {
+    fail('Storage region is required.');
+  }
+
+  const response = await client.dbPatch(`/v1/groups/${group.id}`, payload);
+  client.stdout.write(`${JSON.stringify(response.group || response, null, 2)}\n`);
+}
+
+async function mutateReplicaRegion(client, identifier, region, action) {
+  printExperimentalWarning(client);
+  const group = await getDatabaseGroup(client, identifier);
+  const replicas = new Set(group.replicas_regions || []);
+  if (action === 'add') replicas.add(region);
+  if (action === 'remove') replicas.delete(region);
+
+  const response = await client.dbPatch(`/v1/groups/${group.id}`, {
+    storage_region: group.storage_region,
+    primary_regions: group.primary_regions || [],
+    replicas_regions: [...replicas],
+  });
+  client.stdout.write(`${JSON.stringify(response.group || response, null, 2)}\n`);
+}
+
+async function mirrorDatabaseRegions(client, sourceIdentifier, targetIdentifiers) {
+  printExperimentalWarning(client);
+  if (!sourceIdentifier || targetIdentifiers.length === 0) {
+    fail('Usage: db mirror <sourceIdOrName> <targetIdOrName...>');
+  }
+
+  const sourceGroup = await getDatabaseGroup(client, sourceIdentifier);
+  const payload = {
+    storage_region: sourceGroup.storage_region,
+    primary_regions: sourceGroup.primary_regions || [],
+    replicas_regions: sourceGroup.replicas_regions || [],
+  };
+
+  const results = [];
+  for (const targetIdentifier of targetIdentifiers) {
+    const targetGroup = await getDatabaseGroup(client, targetIdentifier);
+    const response = await client.dbPatch(`/v1/groups/${targetGroup.id}`, payload);
+    results.push({
+      target: targetIdentifier,
+      group: response.group || response,
+    });
+  }
+
+  client.stdout.write(`${JSON.stringify({
+    source: sourceIdentifier,
+    mirrored: results,
+  }, null, 2)}\n`);
+}
+
+async function runDatabaseSql(client, identifier, sql, argsJson, { normalize = true } = {}) {
+  const database = await getDatabaseDetails(client, identifier);
+  const bearer = client.dbBearerToken;
+  if (!bearer) {
+    fail('Database SQL execution requires BUNNY_DB_BEARER_TOKEN or config.profiles.default.db_bearer_token.');
+  }
+
+  const pipelineUrl = buildSqlPipelineUrl(database.url);
+  const response = await client.fetchImpl(pipelineUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${bearer.replace(/^Bearer\s+/i, '')}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      requests: buildSqlRequests(sql, argsJson),
+    }),
+  });
+
+  const text = await response.text();
+  if (!response.ok) {
+    throw new CliError(`HTTP ${response.status} POST ${pipelineUrl}\n${text}`);
+  }
+  const parsed = JSON.parse(text);
+  client.stdout.write(`${JSON.stringify(normalize ? normalizeSqlResult(parsed.results?.[0]) : parsed, null, 2)}\n`);
+}
+
+async function runDatabaseBatch(client, identifier, file) {
+  const database = await getDatabaseDetails(client, identifier);
+  const bearer = client.dbBearerToken;
+  if (!bearer) {
+    fail('Database batch execution requires BUNNY_DB_BEARER_TOKEN or config.profiles.default.db_bearer_token.');
+  }
+
+  const pipelineUrl = buildSqlPipelineUrl(database.url);
+  const requests = JSON.parse(readFileSync(resolve(file), 'utf8'));
+  const response = await client.fetchImpl(pipelineUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${bearer.replace(/^Bearer\s+/i, '')}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ requests }),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new CliError(`HTTP ${response.status} POST ${pipelineUrl}\n${text}`);
+  }
+  client.stdout.write(`${JSON.stringify(JSON.parse(text), null, 2)}\n`);
+}
+
+async function listDatabaseTables(client, identifier) {
+  await runDatabaseSql(client, identifier, "select name, type from sqlite_master where type in ('table','view') and name not like 'sqlite_%' order by type, name");
+}
+
+async function showDatabaseSchema(client, identifier, table) {
+  const sql = table
+    ? "select type, name, tbl_name, sql from sqlite_master where name = ? order by type, name"
+    : "select type, name, tbl_name, sql from sqlite_master where name not like 'sqlite_%' order by type, name";
+  await runDatabaseSql(client, identifier, sql, table ? JSON.stringify([table]) : undefined);
+}
+
+async function listDatabaseIndexes(client, identifier, table) {
+  const sql = table
+    ? "select name, tbl_name, sql from sqlite_master where type = 'index' and tbl_name = ? order by name"
+    : "select name, tbl_name, sql from sqlite_master where type = 'index' and name not like 'sqlite_%' order by tbl_name, name";
+  await runDatabaseSql(client, identifier, sql, table ? JSON.stringify([table]) : undefined);
+}
+
+async function showDatabasePragma(client, identifier, pragmaName) {
+  if (!pragmaName) fail('Usage: db pragma <idOrName> <pragmaName>');
+  await runDatabaseSql(client, identifier, `pragma ${pragmaName}`);
+}
+
+async function runDatabaseIntegrityCheck(client, identifier) {
+  await runDatabaseSql(client, identifier, 'pragma integrity_check');
+}
+
+async function runDatabaseForeignKeyCheck(client, identifier) {
+  await runDatabaseSql(client, identifier, 'pragma foreign_key_check');
+}
+
+async function dumpDatabaseSchema(client, identifier) {
+  await runDatabaseSql(
+    client,
+    identifier,
+    "select sql from sqlite_master where sql is not null and name not like 'sqlite_%' order by case type when 'table' then 0 when 'index' then 1 when 'trigger' then 2 else 3 end, name",
+  );
+}
+
+async function runDatabaseDoctor(client, identifier) {
+  const checks = [
+    { name: 'integrity_check', sql: 'pragma integrity_check' },
+    { name: 'foreign_keys', sql: 'pragma foreign_keys' },
+    { name: 'journal_mode', sql: 'pragma journal_mode' },
+    { name: 'tables', sql: "select count(*) as count from sqlite_master where type='table' and name not like 'sqlite_%'" },
+    { name: 'indexes', sql: "select count(*) as count from sqlite_master where type='index' and name not like 'sqlite_%'" },
+  ];
+
+  const report = {};
+  for (const check of checks) {
+    const chunks = [];
+    const scopedClient = { ...client, stdout: { write(chunk) { chunks.push(chunk); } } };
+    await runDatabaseSql(scopedClient, identifier, check.sql);
+    report[check.name] = JSON.parse(chunks.join(''));
+  }
+  client.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+}
+
+async function listDatabaseVersions(client, identifier, limit = '20') {
+  printExperimentalWarning(client);
+  const database = await resolveDatabaseIdentifier(client, identifier);
+  const result = await client.dbPost(`/v1/databases/${database.id}/list_versions`, {
+    limit: Number(limit),
+  });
+  client.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function forkDatabase(client, identifier, name) {
+  printExperimentalWarning(client);
+  if (!name) fail('Usage: db fork <idOrName> <newName>');
+  const database = await resolveDatabaseIdentifier(client, identifier);
+  const result = await client.dbPost(`/v1/databases/${database.id}/fork`, { name });
+  client.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function restoreDatabaseVersion(client, identifier, version) {
+  printExperimentalWarning(client);
+  if (!version) fail('Usage: db restore <idOrName> <version>');
+  const database = await resolveDatabaseIdentifier(client, identifier);
+  const result = await client.dbPost(`/v1/databases/${database.id}/restore`, { version });
+  client.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function showDatabaseUsage(client, identifier, from, to) {
+  const database = await resolveDatabaseIdentifier(client, identifier);
+  const query = `from=${encodeURIComponent(formatIsoDate(from))}&to=${encodeURIComponent(formatIsoDate(to))}`;
+  const result = await client.dbGet(`/v2/databases/${database.id}/usage?${query}`);
+  client.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function showDatabaseStatistics(client, identifier, from, to) {
+  const database = await resolveDatabaseIdentifier(client, identifier);
+  const query = `from=${encodeURIComponent(formatIsoDate(from))}&to=${encodeURIComponent(formatIsoDate(to))}`;
+  const result = await client.dbGet(`/v2/databases/${database.id}/statistics?${query}`);
+  client.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function showGroupStatistics(client, identifier, from, to) {
+  printExperimentalWarning(client);
+  const group = await getDatabaseGroup(client, identifier);
+  const query = `from=${encodeURIComponent(formatIsoDate(from))}&to=${encodeURIComponent(formatIsoDate(to))}`;
+  const result = await client.dbGet(`/v1/groups/${group.id}/stats?${query}`);
+  client.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function showActiveDatabaseUsage(client) {
+  const result = await client.dbGet('/v2/databases/active_usage');
+  client.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
 function showHelp(stdout = process.stdout) {
   stdout.write(`
-DustBunny — Bunny.net operator CLI
+DustBunny — Bunny app + database operator CLI
 
 App commands:
   apps
@@ -762,9 +1398,48 @@ Wait:
 Utility:
   health <url>
 
-Config:
-  Set BUNNY_API_KEY or configure ~/.config/bunnynet.json
+Database commands:
+  db list
+  db limits
+  db api status
+  db api sync-spec
+  db create <name> [primaryRegion] [storageRegion] [replicaCsv]
+  db delete <idOrName>
+  db token <idOrName> [full-access|read-only]
+  db group-token <idOrName> [full-access|read-only]
+  db group <idOrName>
+  db mirror <sourceIdOrName> <targetIdOrName...>
+  db spec <idOrName>
+  db regions set <idOrName> <primaryCsv|-> <storageRegion|-> [replicaCsv|-]
+  db replica add <idOrName> <region>
+  db replica remove <idOrName> <region>
+  db versions <idOrName> [limit]
+  db fork <idOrName> <newName>
+  db restore <idOrName> <version>
+  db query <idOrName> <sql> [jsonArgs]
+  db exec <idOrName> <sql> [jsonArgs]
+  db batch <idOrName> <requests.json>
+  db tables <idOrName>
+  db schema <idOrName> [table]
+  db indexes <idOrName> [table]
+  db pragma <idOrName> <pragmaName>
+  db integrity-check <idOrName>
+  db fk-check <idOrName>
+  db dump schema <idOrName>
+  db doctor <idOrName>
+  db usage <idOrName> <fromIso> <toIso>
+  db stats <idOrName> <fromIso> <toIso>
+  db group-stats <idOrName> <fromIso> <toIso>
+  db active-usage
+  db sql <idOrName> <sql> [jsonArgs]
+  DB failures trigger a best-effort refresh of Bunny's private DB OpenAPI spec and report drift.
+  Note: control-plane DB commands use undocumented preview endpoints and may drift.
+
 `);
+}
+
+function buildOfficialBunnyArgs(argv) {
+  return null;
 }
 
 async function runCli(argv = process.argv.slice(2), options = {}) {
@@ -780,6 +1455,12 @@ async function runCli(argv = process.argv.slice(2), options = {}) {
     fetchImpl: options.fetchImpl || fetch,
     stdout,
   });
+  const officialArgs = !options.disableOfficialPassthrough ? buildOfficialBunnyArgs(argv) : null;
+
+  if (officialArgs) {
+    fail(`Official Bunny passthrough is disabled for this command: ${argv.join(' ')}`);
+    return 0;
+  }
 
   const [command, ...args] = argv;
 
@@ -915,6 +1596,141 @@ async function runCli(argv = process.argv.slice(2), options = {}) {
     return 0;
   }
 
+  if (command === 'db') {
+    try {
+      if (args[0] === 'list') {
+        await listDatabases(client);
+        return 0;
+      }
+      if (args[0] === 'limits') {
+        await showDatabaseLimits(client);
+        return 0;
+      }
+      if (args[0] === 'api' && args[1] === 'status') {
+        await showDatabaseSpecCacheStatus(client);
+        return 0;
+      }
+      if (args[0] === 'api' && args[1] === 'sync-spec') {
+        await refreshDatabaseSpecCache(client);
+        return 0;
+      }
+      if (args[0] === 'create') {
+        await createDatabase(client, args[1], args[2], args[3], args[4]);
+        return 0;
+      }
+      if (args[0] === 'delete') {
+        await deleteDatabase(client, args[1]);
+        return 0;
+      }
+      if (args[0] === 'token') {
+        await generateDatabaseToken(client, args[1], args[2] || 'full-access');
+        return 0;
+      }
+      if (args[0] === 'group-token') {
+        await generateDatabaseGroupToken(client, args[1], args[2] || 'full-access');
+        return 0;
+      }
+      if (args[0] === 'group') {
+        await showDatabaseGroup(client, args[1]);
+        return 0;
+      }
+      if (args[0] === 'mirror') {
+        await mirrorDatabaseRegions(client, args[1], args.slice(2));
+        return 0;
+      }
+      if (args[0] === 'spec') {
+        await showDatabaseSpec(client, args[1]);
+        return 0;
+      }
+      if (args[0] === 'regions' && args[1] === 'set') {
+        await setDatabaseRegions(client, args[2], args[3], args[4], args[5] || '');
+        return 0;
+      }
+      if (args[0] === 'replica' && args[1] === 'add') {
+        await mutateReplicaRegion(client, args[2], args[3], 'add');
+        return 0;
+      }
+      if (args[0] === 'replica' && args[1] === 'remove') {
+        await mutateReplicaRegion(client, args[2], args[3], 'remove');
+        return 0;
+      }
+      if (args[0] === 'versions') {
+        await listDatabaseVersions(client, args[1], args[2] || '20');
+        return 0;
+      }
+      if (args[0] === 'fork') {
+        await forkDatabase(client, args[1], args[2]);
+        return 0;
+      }
+      if (args[0] === 'restore') {
+        await restoreDatabaseVersion(client, args[1], args[2]);
+        return 0;
+      }
+      if (args[0] === 'sql') {
+        await runDatabaseSql(client, args[1], args[2], args[3]);
+        return 0;
+      }
+      if (args[0] === 'query' || args[0] === 'exec') {
+        await runDatabaseSql(client, args[1], args[2], args[3]);
+        return 0;
+      }
+      if (args[0] === 'batch') {
+        await runDatabaseBatch(client, args[1], args[2]);
+        return 0;
+      }
+      if (args[0] === 'tables') {
+        await listDatabaseTables(client, args[1]);
+        return 0;
+      }
+      if (args[0] === 'schema') {
+        await showDatabaseSchema(client, args[1], args[2]);
+        return 0;
+      }
+      if (args[0] === 'indexes') {
+        await listDatabaseIndexes(client, args[1], args[2]);
+        return 0;
+      }
+      if (args[0] === 'pragma') {
+        await showDatabasePragma(client, args[1], args[2]);
+        return 0;
+      }
+      if (args[0] === 'integrity-check') {
+        await runDatabaseIntegrityCheck(client, args[1]);
+        return 0;
+      }
+      if (args[0] === 'fk-check') {
+        await runDatabaseForeignKeyCheck(client, args[1]);
+        return 0;
+      }
+      if (args[0] === 'dump' && args[1] === 'schema') {
+        await dumpDatabaseSchema(client, args[2]);
+        return 0;
+      }
+      if (args[0] === 'doctor') {
+        await runDatabaseDoctor(client, args[1]);
+        return 0;
+      }
+      if (args[0] === 'usage') {
+        await showDatabaseUsage(client, args[1], args[2], args[3]);
+        return 0;
+      }
+      if (args[0] === 'stats') {
+        await showDatabaseStatistics(client, args[1], args[2], args[3]);
+        return 0;
+      }
+      if (args[0] === 'group-stats') {
+        await showGroupStatistics(client, args[1], args[2], args[3]);
+        return 0;
+      }
+      if (args[0] === 'active-usage') {
+        await showActiveDatabaseUsage(client);
+        return 0;
+      }
+    } catch (error) {
+      throw await enrichDatabaseFailureWithSpec(client, argv, error);
+    }
+  }
+
   fail(`Unsupported command: ${argv.join(' ')}`);
 }
 
@@ -922,34 +1738,72 @@ export {
   CliError,
   applyAppSpec,
   buildAppSpec,
+  buildSqlPipelineUrl,
+  buildSqlRequests,
   buildTemplatePatch,
-  createApiClient,
   createApp,
   createAppFromSpec,
   createPullZone,
+  createDatabase,
+  createApiClient,
   dedupeEnvVars,
   deleteApp,
+  deleteDatabase,
+  dumpDatabaseSchema,
+  formatIsoDate,
+  fetchLatestDatabaseSpec,
+  forkDatabase,
+  generateDatabaseToken,
+  generateDatabaseGroupToken,
+  getDatabaseSpecCachePath,
+  getDatabaseAccessKey,
+  getDatabaseBearerToken,
+  getDatabaseGroup,
   healthCheck,
-  listApps,
-  listEndpoints,
+  listDatabaseIndexes,
+  listDatabaseTables,
+  listDatabases,
+  listDatabaseVersions,
   listPullZones,
   listRecords,
   listZones,
   loadConfig,
   loadEnvFile,
   mergeEnvVars,
+  mirrorDatabaseRegions,
+  mutateReplicaRegion,
   normalizeEndpoints,
+  normalizeSqlResult,
   parseEnvText,
   parseImageRef,
-  removeEnvVar,
+  parseSqlApiValue,
+  readCachedDatabaseSpec,
+  refreshDatabaseSpecCache,
   removeEndpoint,
+  removeEnvVar,
   runCli,
+  runDatabaseBatch,
+  runDatabaseDoctor,
+  runDatabaseForeignKeyCheck,
+  runDatabaseIntegrityCheck,
   scaleApp,
   setDnsRecord,
+  setDatabaseRegions,
   setPullZoneRecord,
+  restoreDatabaseVersion,
+  showActiveDatabaseUsage,
+  showDatabaseGroup,
+  showDatabaseLimits,
+  showDatabaseSpecCacheStatus,
+  showDatabasePragma,
+  showDatabaseSchema,
+  showDatabaseStatistics,
+  showDatabaseUsage,
+  showGroupStatistics,
   syncEnv,
   updateAppImage,
   waitForApp,
+  runDatabaseSql,
 };
 
 if (isDirectExecution()) {

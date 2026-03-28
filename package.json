@@ -1,7 +1,7 @@
 {
   "name": "dustbunny",
   "version": "0.1.0",
-  "description": "CLI for Bunny.net Magic Containers, DNS, and Pull Zones.",
+  "description": "CLI for Bunny.net Magic Containers, DNS, Pull Zones, and experimental Database operations.",
   "type": "module",
   "bin": {
     "dustbunny": "./bin/dustbunny.mjs"
