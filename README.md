@@ -38,6 +38,25 @@ That means:
 
 For the current split between official parity and DustBunny-only additions, see [docs/API-MAPPING.md](docs/API-MAPPING.md).
 
+## Routing Flow
+
+```mermaid
+flowchart TD
+  A[Command enters DustBunny] --> B{Official mapping exists?}
+  B -- Yes --> C[Try official Bunny CLI]
+  B -- No --> D[Run DustBunny native path]
+  C --> E{Succeeded?}
+  E -- Yes --> F[Return result]
+  E -- No --> G{Fallback allowed?}
+  G -- Yes --> D
+  G -- No --> H[Return failure]
+  D --> I{Experimental command?}
+  I -- No --> F
+  I -- Yes --> J{Experimental opt-in enabled?}
+  J -- Yes --> F
+  J -- No --> K[Reject with opt-in message]
+```
+
 ## Install
 
 ```bash
@@ -344,6 +363,7 @@ Release process:
 
 - run `npm run check:official-cli`
 - review [docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md)
+- see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for deeper flow and dependency diagrams
 
 ## Privacy and public-safety
 

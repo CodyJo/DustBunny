@@ -14,6 +14,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - Added `docs/API-MAPPING.md` to explain official passthrough versus DustBunny-native routing
 - Added `scripts/check-official-cli.mjs` and `docs/RELEASE-CHECKLIST.md` for parity/release audits
 - Added `docs/EXPERIMENTAL.md` for hidden DB/admin commands that require explicit opt-in
+- Added `docs/ARCHITECTURE.md` with Mermaid diagrams for routing, dependencies, and experimental gating
 
 ## Pending
 
@@ -38,6 +39,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - `README.md`
 - `docs/API-MAPPING.md`
 - `docs/EXPERIMENTAL.md`
+- `docs/ARCHITECTURE.md`
 - `docs/RELEASE-CHECKLIST.md`
 - `scripts/check-official-cli.mjs`
 - `src/config.mjs`
