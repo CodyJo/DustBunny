@@ -76,32 +76,7 @@ These are the commands that are new to DustBunny and not part of the documented 
 
 ### DustBunny DB extensions
 
-- `db limits`
-- `db api status`
-- `db api sync-spec`
-- `db group`
-- `db group-token`
-- `db mirror`
-- `db spec`
-- `db regions set`
-- `db replica add`
-- `db replica remove`
-- `db versions`
-- `db fork`
-- `db restore`
-- `db batch`
-- `db tables`
-- `db schema`
-- `db indexes`
-- `db pragma`
-- `db integrity-check`
-- `db fk-check`
-- `db dump schema`
-- `db doctor`
-- `db usage <id> <from> <to>`
-- `db stats <id> <from> <to>`
-- `db group-stats <id> <from> <to>`
-- `db active-usage`
+- `db sql <id> <sql> [jsonArgs]`
 
 ## Native DustBunny commands
 
@@ -144,34 +119,9 @@ These native paths are also the parts most influenced by reverse engineering dur
 - `pz purge`
 - `health`
 
-### Native-only DB extensions
+### Experimental native-only DB extensions
 
-- `db limits`
-- `db api status`
-- `db api sync-spec`
-- `db group`
-- `db group-token`
-- `db mirror`
-- `db spec`
-- `db regions set`
-- `db replica add`
-- `db replica remove`
-- `db versions`
-- `db fork`
-- `db restore`
-- `db batch`
-- `db tables`
-- `db schema`
-- `db indexes`
-- `db pragma`
-- `db integrity-check`
-- `db fk-check`
-- `db dump schema`
-- `db doctor`
-- `db usage <id> <from> <to>`
-- `db stats <id> <from> <to>`
-- `db group-stats <id> <from> <to>`
-- `db active-usage`
+These are disabled by default and documented in [docs/EXPERIMENTAL.md](EXPERIMENTAL.md).
 
 ## Auth bridging
 
@@ -199,3 +149,4 @@ Version source:
 - `--prefer-official`
 - `--prefer-native`
 - `--no-fallback`
+- `--experimental`

@@ -2,7 +2,7 @@
 
 ## Current Direction
 
-DustBunny is the public extraction of the Bunny CLI that previously lived inside Back Office. The public repo now includes the full public-safe command surface, including experimental Bunny Database support.
+DustBunny is the public extraction of the Bunny CLI that previously lived inside Back Office. The public repo now keeps experimental DB/admin commands in code but disabled by default.
 
 ## Completed
 
@@ -13,6 +13,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - Added official Bunny CLI passthrough for documented supported commands
 - Added `docs/API-MAPPING.md` to explain official passthrough versus DustBunny-native routing
 - Added `scripts/check-official-cli.mjs` and `docs/RELEASE-CHECKLIST.md` for parity/release audits
+- Added `docs/EXPERIMENTAL.md` for hidden DB/admin commands that require explicit opt-in
 
 ## Pending
 
@@ -24,7 +25,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - Runtime code is now split under `src/` with a thin `bin/` entrypoint
 - Direct Bunny API calls using `fetch`
 - No dependency on Back Office modules, configs, or docs
-- Database command surface is included and explicitly documented as experimental because Bunny may change those APIs
+- Experimental DB/admin surface remains in code but is disabled by default and omitted from the main README
 - Official Bunny CLI is preferred for selected documented commands via `npx -y @bunny.net/cli@latest`
 - Official parity is now treated as a release requirement for the documented Bunny CLI surface
 - DustBunny maps `BUNNY_API_KEY` to `BUNNYNET_API_KEY` for official passthrough
@@ -36,6 +37,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 
 - `README.md`
 - `docs/API-MAPPING.md`
+- `docs/EXPERIMENTAL.md`
 - `docs/RELEASE-CHECKLIST.md`
 - `scripts/check-official-cli.mjs`
 - `src/config.mjs`

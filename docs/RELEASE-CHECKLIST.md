@@ -35,6 +35,7 @@ Check:
 - DustBunny-only commands are still clearly labeled as native-only
 - `--prefer-official`, `--prefer-native`, and `--no-fallback` behavior still matches docs
 - official CLI resolution order still matches docs
+- hidden experimental commands still require `--experimental` or `DUSTBUNNY_ENABLE_EXPERIMENTAL=1`
 
 ## 4. Verify dependencies and runtime assumptions
 

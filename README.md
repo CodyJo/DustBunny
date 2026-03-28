@@ -1,6 +1,6 @@
 # DustBunny
 
-DustBunny is a public CLI for Bunny.net Magic Containers, DNS zones, Pull Zones, and experimental Bunny Database operations.
+DustBunny is a public CLI for Bunny.net with official CLI passthrough plus Magic Containers, DNS zones, Pull Zones, and selected database workflows.
 
 This repo is derived from the private Back Office CLI, but it does not include your private config, credentials, customer data, or project-specific operational context.
 
@@ -22,7 +22,7 @@ The reverse-engineered parts are mostly the native DustBunny command paths that 
 - inconsistent response casing
 - partial or evolving endpoint payloads
 - app/template patch preservation
-- experimental Bunny Database control-plane behavior
+- undocumented or evolving Bunny behavior in a few operator-focused paths
 
 In short: this project exists because the migration needed a tool that could cover the supported Bunny surface first, then fill the practical gaps safely where the official CLI or docs were not enough yet.
 
@@ -135,6 +135,7 @@ DustBunny depends on:
 Optional but important runtime dependency:
 
 - the published official Bunny CLI package `@bunny.net/cli` for parity with documented Bunny commands
+- `--experimental` or `DUSTBUNNY_ENABLE_EXPERIMENTAL=1` if you want the hidden experimental command surface
 
 ## Fallback logic
 
@@ -189,6 +190,7 @@ Why the coverage is selective:
 - Those local paths are the parts most shaped by reverse engineering during the Bunny migration work.
 
 DustBunny-only additions are called out in [docs/API-MAPPING.md](docs/API-MAPPING.md#dustbunny-only-commands) under `DustBunny-only commands`.
+Experimental commands are documented separately in [docs/EXPERIMENTAL.md](docs/EXPERIMENTAL.md).
 
 Routing controls:
 
@@ -214,12 +216,6 @@ Routing controls:
 - `wait` keeps polling if Bunny has not assigned an endpoint yet.
 - `wait` also keeps polling if the health endpoint is temporarily unavailable.
 - A running app is only treated as ready when Bunny reports a healthy status and the health endpoint is acceptable when one exists.
-
-### Database API drift fallback
-
-- Experimental DB control-plane failures trigger a best-effort refresh of Bunny's private DB OpenAPI spec.
-- DustBunny compares the cached spec with the latest available spec and reports possible API drift.
-- If the spec refresh fails, DustBunny still surfaces the original API failure and tells you the refresh failed too.
 
 ## User guide
 
@@ -322,48 +318,19 @@ API notes:
 - The command prints status and a short body preview.
 - This command currently runs through DustBunny's native implementation.
 
-### Experimental Bunny Database support
+### Database support
 
 ```bash
 dustbunny db list
-dustbunny db limits
-dustbunny db api status
-dustbunny db api sync-spec
 dustbunny db create demo-db de de uk
-dustbunny db token demo-db full-access
-dustbunny db group-token demo-db read-only
-dustbunny db group demo-db
-dustbunny db spec demo-db
-dustbunny db regions set demo-db de de uk,us
-dustbunny db replica add demo-db us
-dustbunny db replica remove demo-db uk
-dustbunny db versions demo-db 20
-dustbunny db fork demo-db demo-db-copy
-dustbunny db restore demo-db version_123
-dustbunny db usage demo-db 2026-03-01T00:00:00Z 2026-03-28T00:00:00Z
-dustbunny db stats demo-db 2026-03-01T00:00:00Z 2026-03-28T00:00:00Z
-dustbunny db group-stats demo-db 2026-03-01T00:00:00Z 2026-03-28T00:00:00Z
-dustbunny db active-usage
 dustbunny db sql demo-db "select * from users limit 5"
-dustbunny db tables demo-db
-dustbunny db schema demo-db
-dustbunny db indexes demo-db
-dustbunny db pragma demo-db journal_mode
-dustbunny db integrity-check demo-db
-dustbunny db fk-check demo-db
-dustbunny db dump schema demo-db
-dustbunny db doctor demo-db
 ```
 
 API notes:
 
-- DB control-plane commands use Bunny database endpoints and are intentionally labeled experimental.
-- Some of these APIs are undocumented or preview surfaces and may drift.
-- SQL and batch commands require a DB bearer token because they call the pipeline endpoint directly.
-- Database identifiers can resolve by database id, name, group id, URL, or derived group id.
-- `db doctor` runs several SQL checks and composes a JSON report.
-- `db list`, `db create`, `db delete`, `db sql`, `db query`, and `db exec` now prefer official CLI passthrough first.
-- `db limits`, `db api status`, `db api sync-spec`, `db group`, `db group-token`, `db mirror`, `db spec`, `db regions set`, `db replica add/remove`, `db versions`, `db fork`, `db restore`, `db batch`, `db tables`, `db schema`, `db indexes`, `db pragma`, `db integrity-check`, `db fk-check`, `db dump schema`, `db doctor`, `db usage`, `db stats`, `db group-stats`, and `db active-usage` stay in DustBunny's custom implementation.
+- Documented/public database workflows prefer official CLI passthrough first.
+- `db sql` stays available as a compact operator shortcut.
+- Experimental DB/admin extensions are disabled by default and documented separately in [docs/EXPERIMENTAL.md](docs/EXPERIMENTAL.md).
 
 ## Command routing
 

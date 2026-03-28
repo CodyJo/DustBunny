@@ -1331,7 +1331,7 @@ async function showActiveDatabaseUsage(client) {
   client.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 
-function showHelp(stdout = process.stdout) {
+function showHelp(stdout = process.stdout, { experimental = false } = {}) {
   stdout.write(`
 DustBunny — Bunny app + database operator CLI
 
@@ -1380,11 +1380,16 @@ Utility:
 
 Database commands:
   db list
+  db create <name> [primaryRegion] [storageRegion] [replicaCsv]
+  db delete <idOrName>
+  db sql <idOrName> <sql> [jsonArgs]
+`);
+  if (experimental) {
+    stdout.write(`
+Experimental DB commands:
   db limits
   db api status
   db api sync-spec
-  db create <name> [primaryRegion] [storageRegion] [replicaCsv]
-  db delete <idOrName>
   db token <idOrName> [full-access|read-only]
   db group-token <idOrName> [full-access|read-only]
   db group <idOrName>
@@ -1411,9 +1416,12 @@ Database commands:
   db stats <idOrName> <fromIso> <toIso>
   db group-stats <idOrName> <fromIso> <toIso>
   db active-usage
-  db sql <idOrName> <sql> [jsonArgs]
   DB failures trigger a best-effort refresh of Bunny's private DB OpenAPI spec and report drift.
   Note: control-plane DB commands use undocumented preview endpoints and may drift.
+
+`);
+  }
+  stdout.write(`
   Official Bunny CLI passthrough is preferred for documented commands such as login,
   config, registries, scripts, and selected db commands. DustBunny falls back to its
   custom implementation when a mapped command has compatible fallback behavior.
@@ -1422,6 +1430,7 @@ Routing flags:
   --prefer-official            Force official Bunny CLI first when mapping exists
   --prefer-native              Skip official Bunny CLI passthrough and use DustBunny
   --no-fallback                If official Bunny CLI fails, do not fall back
+  --experimental               Enable DustBunny experimental DB/admin command surface
 
 `);
 }
@@ -1431,6 +1440,7 @@ function parseRoutingFlags(argv) {
     preferOfficial: false,
     preferNative: false,
     noFallback: false,
+    experimental: false,
     argv: [],
   };
 
@@ -1447,10 +1457,54 @@ function parseRoutingFlags(argv) {
       routing.noFallback = true;
       continue;
     }
+    if (arg === '--experimental') {
+      routing.experimental = true;
+      continue;
+    }
     routing.argv.push(arg);
   }
 
   return routing;
+}
+
+function isExperimentalEnabled(routing, env = process.env) {
+  return routing.experimental || env.DUSTBUNNY_ENABLE_EXPERIMENTAL === '1';
+}
+
+function isExperimentalDbCommand(args) {
+  if (args[0] === 'limits') return true;
+  if (args[0] === 'token') return true;
+  if (args[0] === 'group-token') return true;
+  if (args[0] === 'group') return true;
+  if (args[0] === 'mirror') return true;
+  if (args[0] === 'spec') return true;
+  if (args[0] === 'versions') return true;
+  if (args[0] === 'fork') return true;
+  if (args[0] === 'restore') return true;
+  if (args[0] === 'query' || args[0] === 'exec') return true;
+  if (args[0] === 'batch') return true;
+  if (args[0] === 'tables') return true;
+  if (args[0] === 'schema') return true;
+  if (args[0] === 'indexes') return true;
+  if (args[0] === 'pragma') return true;
+  if (args[0] === 'integrity-check') return true;
+  if (args[0] === 'fk-check') return true;
+  if (args[0] === 'doctor') return true;
+  if (args[0] === 'active-usage') return true;
+  if (args[0] === 'api' && (args[1] === 'status' || args[1] === 'sync-spec')) return true;
+  if (args[0] === 'regions' && args[1] === 'set') return true;
+  if (args[0] === 'replica' && (args[1] === 'add' || args[1] === 'remove')) return true;
+  if (args[0] === 'dump' && args[1] === 'schema') return true;
+  if (args[0] === 'usage' && args.length >= 4) return true;
+  if (args[0] === 'stats') return true;
+  if (args[0] === 'group-stats') return true;
+  return false;
+}
+
+function assertExperimentalEnabled(args, routing, env) {
+  if (!isExperimentalDbCommand(args)) return;
+  if (isExperimentalEnabled(routing, env)) return;
+  fail('This DB/admin command is experimental and disabled by default. Re-run with --experimental or set DUSTBUNNY_ENABLE_EXPERIMENTAL=1. See docs/EXPERIMENTAL.md.');
 }
 
 async function runCli(argv = process.argv.slice(2), options = {}) {
@@ -1462,7 +1516,7 @@ async function runCli(argv = process.argv.slice(2), options = {}) {
   argv = routing.argv;
 
   if (argv.length === 0 || argv[0] === 'help' || argv[0] === '--help' || argv[0] === '-h') {
-    showHelp(stdout);
+    showHelp(stdout, { experimental: isExperimentalEnabled(routing, env) });
     return 0;
   }
 
@@ -1631,6 +1685,7 @@ async function runCli(argv = process.argv.slice(2), options = {}) {
   }
 
   if (command === 'db') {
+    assertExperimentalEnabled(args, routing, env);
     try {
       if (args[0] === 'list') {
         await listDatabases(client);
@@ -1811,6 +1866,9 @@ export {
   parseEnvText,
   parseImageRef,
   parseRoutingFlags,
+  isExperimentalEnabled,
+  isExperimentalDbCommand,
+  assertExperimentalEnabled,
   parseSqlApiValue,
   readCachedDatabaseSpec,
   refreshDatabaseSpecCache,

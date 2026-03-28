@@ -664,7 +664,7 @@ test('runCli executes app scale command without legacy passthrough', async () =>
 
 test('runCli executes database replica add command without legacy passthrough', async () => {
   const client = createClient();
-  const code = await runCli(['db', 'replica', 'add', 'demo-db', 'sg'], {
+  const code = await runCli(['--experimental', 'db', 'replica', 'add', 'demo-db', 'sg'], {
     client,
     stdout: client.stdout,
     disableLegacyPassthrough: true,
@@ -746,7 +746,18 @@ test('parseRoutingFlags strips routing controls from argv', () => {
     preferOfficial: false,
     preferNative: true,
     noFallback: true,
+    experimental: false,
     argv: ['db', 'list'],
+  });
+});
+
+test('parseRoutingFlags captures experimental flag', () => {
+  assert.deepEqual(parseRoutingFlags(['--experimental', 'db', 'doctor', 'demo-db']), {
+    preferOfficial: false,
+    preferNative: false,
+    noFallback: false,
+    experimental: true,
+    argv: ['db', 'doctor', 'demo-db'],
   });
 });
 
@@ -837,6 +848,29 @@ test('runCli honors --no-fallback for official mapped commands', async () => {
   assert.equal(client.stdout.chunks.length, 0);
 });
 
+test('runCli blocks experimental db commands by default', async () => {
+  await assert.rejects(
+    runCli(['db', 'doctor', 'demo-db'], {
+      stdout: { write() {} },
+      stderr: { write() {} },
+      officialRunner: async () => ({ code: 0 }),
+    }),
+    /experimental and disabled by default/,
+  );
+});
+
+test('runCli allows experimental db commands with --experimental', async () => {
+  const client = createClient();
+  const code = await runCli(['--experimental', 'db', 'doctor', 'demo-db'], {
+    client,
+    stdout: client.stdout,
+    stderr: { write() {} },
+  });
+
+  assert.equal(code, 0);
+  assert.match(client.stdout.chunks.join(''), /integrity_check/);
+});
+
 test('runCli refreshes DB spec and appends drift details on DB HTTP failure', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'bunny-cli-spec-drift-'));
   const cachePath = join(dir, 'private-api.json');
@@ -886,7 +920,7 @@ test('runCli refreshes DB spec and appends drift details on DB HTTP failure', as
 
   try {
     await assert.rejects(
-      runCli(['db', 'limits'], {
+      runCli(['--experimental', 'db', 'limits'], {
         client,
         stdout,
         disableLegacyPassthrough: true,
