@@ -188,7 +188,7 @@ Why the coverage is selective:
 - App, DNS, Pull Zone, and several advanced DB inspection commands stay local because DustBunny's command model is different or richer than the official CLI's documented interface.
 - Those local paths are the parts most shaped by reverse engineering during the Bunny migration work.
 
-DustBunny-only additions are called out in [docs/API-MAPPING.md](/home/merm/projects/dustbunny/docs/API-MAPPING.md) under `DustBunny-only commands`.
+DustBunny-only additions are called out in [docs/API-MAPPING.md](docs/API-MAPPING.md#dustbunny-only-commands) under `DustBunny-only commands`.
 
 Routing controls:
 
