@@ -320,9 +320,6 @@ This public repo does not ship:
 - your local config file
 - customer or app secrets
 - project-specific environment values
-- Back Office deployment or portfolio context
-
-It does include the experimental DB logic from the original CLI, because you asked for the full feature set to be public.
 
 ## Development
 
