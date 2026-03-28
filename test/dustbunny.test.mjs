@@ -694,6 +694,26 @@ test('buildOfficialBunnyArgs maps documented official commands', () => {
     fallbackToCustom: true,
     source: 'official',
   });
+  assert.deepEqual(buildOfficialBunnyArgs(['db', 'show', 'demo-db']), {
+    args: ['db', 'show', 'demo-db'],
+    fallbackToCustom: false,
+    source: 'official',
+  });
+  assert.deepEqual(buildOfficialBunnyArgs(['db', 'regions', 'list', 'demo-db']), {
+    args: ['db', 'regions', 'list', 'demo-db'],
+    fallbackToCustom: false,
+    source: 'official',
+  });
+  assert.deepEqual(buildOfficialBunnyArgs(['db', 'tokens', 'create', 'demo-db', '--read-only']), {
+    args: ['db', 'tokens', 'create', 'demo-db', '--read-only'],
+    fallbackToCustom: false,
+    source: 'official',
+  });
+  assert.deepEqual(buildOfficialBunnyArgs(['db', 'usage', '--period', '7d']), {
+    args: ['db', 'usage', '--period', '7d'],
+    fallbackToCustom: false,
+    source: 'official',
+  });
 });
 
 test('buildOfficialBunnyEnv maps DustBunny auth into official Bunny env names', () => {

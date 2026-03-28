@@ -12,6 +12,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - Restored Bunny Database functionality from the original CLI, while keeping the repo free of local secrets and private Back Office context
 - Added official Bunny CLI passthrough for documented supported commands
 - Added `docs/API-MAPPING.md` to explain official passthrough versus DustBunny-native routing
+- Added `scripts/check-official-cli.mjs` and `docs/RELEASE-CHECKLIST.md` for parity/release audits
 
 ## Pending
 
@@ -25,6 +26,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - No dependency on Back Office modules, configs, or docs
 - Database command surface is included and explicitly documented as experimental because Bunny may change those APIs
 - Official Bunny CLI is preferred for selected documented commands via `npx -y @bunny.net/cli@latest`
+- Official parity is now treated as a release requirement for the documented Bunny CLI surface
 - DustBunny maps `BUNNY_API_KEY` to `BUNNYNET_API_KEY` for official passthrough
 - Official passthrough falls back to DustBunny's native implementation only when the command has a compatible local path
 - Official passthrough can prefer a configured binary, a local `bunny` binary, or `npx`, in that order
@@ -34,6 +36,8 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 
 - `README.md`
 - `docs/API-MAPPING.md`
+- `docs/RELEASE-CHECKLIST.md`
+- `scripts/check-official-cli.mjs`
 - `src/config.mjs`
 - `src/official-cli.mjs`
 - `bin/dustbunny.mjs`

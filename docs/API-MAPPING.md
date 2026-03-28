@@ -20,10 +20,88 @@ These commands are translated to `npx -y @bunny.net/cli@latest ...`.
 | `scripts ...` | `bunny scripts ...` | No |
 | `db list` | `bunny db list` | Yes |
 | `db create <name> [primary] [storage] [replicas]` | `bunny db create --name ... [--primary ...] [--storage-region ...] [--replicas ...]` | Yes |
+| `db show ...` | `bunny db show ...` | No |
 | `db delete <id>` | `bunny db delete <id>` | Yes |
+| `db regions list ...` | `bunny db regions list ...` | No |
+| `db regions add ...` | `bunny db regions add ...` | No |
+| `db regions remove ...` | `bunny db regions remove ...` | No |
+| `db regions update ...` | `bunny db regions update ...` | No |
+| `db usage ...` | `bunny db usage ...` | No |
+| `db quickstart ...` | `bunny db quickstart ...` | No |
+| `db shell ...` | `bunny db shell ...` | No |
+| `db tokens create ...` | `bunny db tokens create ...` | No |
+| `db tokens invalidate ...` | `bunny db tokens invalidate ...` | No |
 | `db sql <id> <sql>` | `bunny db shell <id> --execute <sql> --mode json` | Yes |
 | `db query <id> <sql>` | `bunny db shell <id> --execute <sql> --mode json` | Yes |
 | `db exec <id> <sql>` | `bunny db shell <id> --execute <sql> --mode json` | Yes |
+
+## DustBunny-only commands
+
+These are the commands that are new to DustBunny and not part of the documented official Bunny CLI surface.
+
+### Apps
+
+- `apps`
+- `app <id>`
+- `app create`
+- `app create-spec`
+- `app delete`
+- `app spec`
+- `app image`
+- `app scale`
+- `app apply`
+- `wait`
+
+### Env / Endpoints / DNS / Pull Zones / Health
+
+- `env sync`
+- `env merge`
+- `env unset`
+- `endpoint list`
+- `endpoint cdn`
+- `endpoint remove`
+- `dns zones`
+- `dns zone`
+- `dns records`
+- `dns set`
+- `dns pullzone`
+- `dns delete`
+- `pz list`
+- `pz create`
+- `pz origin`
+- `pz hostname`
+- `pz ssl`
+- `pz purge`
+- `health`
+
+### DustBunny DB extensions
+
+- `db limits`
+- `db api status`
+- `db api sync-spec`
+- `db group`
+- `db group-token`
+- `db mirror`
+- `db spec`
+- `db regions set`
+- `db replica add`
+- `db replica remove`
+- `db versions`
+- `db fork`
+- `db restore`
+- `db batch`
+- `db tables`
+- `db schema`
+- `db indexes`
+- `db pragma`
+- `db integrity-check`
+- `db fk-check`
+- `db dump schema`
+- `db doctor`
+- `db usage <id> <from> <to>`
+- `db stats <id> <from> <to>`
+- `db group-stats <id> <from> <to>`
+- `db active-usage`
 
 ## Native DustBunny commands
 

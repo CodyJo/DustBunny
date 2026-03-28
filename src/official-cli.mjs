@@ -2,6 +2,16 @@ import { spawn, spawnSync } from 'child_process';
 
 import { getApiKey, loadConfig } from './config.mjs';
 
+function hasFlag(args) {
+  return args.some((arg) => String(arg).startsWith('-'));
+}
+
+function isOfficialDbUsageShape(args) {
+  if (args[0] !== 'usage') return false;
+  if (hasFlag(args)) return true;
+  return args.length <= 2;
+}
+
 export function buildOfficialBunnyArgs(argv) {
   const [command, ...args] = argv;
   if (['login', 'logout', 'whoami', 'config', 'registries', 'scripts'].includes(command)) {
@@ -11,8 +21,24 @@ export function buildOfficialBunnyArgs(argv) {
   if (command !== 'db') return null;
   if (args.length === 0) return { args: argv, fallbackToCustom: false, source: 'official' };
 
+  if (['show', 'quickstart', 'shell'].includes(args[0])) {
+    return { args: argv, fallbackToCustom: false, source: 'official' };
+  }
+  if (args[0] === 'tokens' && ['create', 'invalidate'].includes(args[1])) {
+    return { args: argv, fallbackToCustom: false, source: 'official' };
+  }
+  if (args[0] === 'regions' && ['list', 'add', 'remove', 'update'].includes(args[1])) {
+    return { args: argv, fallbackToCustom: false, source: 'official' };
+  }
+  if (isOfficialDbUsageShape(args)) {
+    return { args: argv, fallbackToCustom: false, source: 'official' };
+  }
+
   if (args[0] === 'list') {
     return { args: ['db', 'list'], fallbackToCustom: true, source: 'official' };
+  }
+  if (args[0] === 'create' && (hasFlag(args) || !args[1])) {
+    return { args: argv, fallbackToCustom: false, source: 'official' };
   }
   if (args[0] === 'create' && args[1]) {
     const officialArgs = ['db', 'create', '--name', args[1]];
@@ -21,8 +47,14 @@ export function buildOfficialBunnyArgs(argv) {
     if (args[4]) officialArgs.push('--replicas', args[4]);
     return { args: officialArgs, fallbackToCustom: true, source: 'official' };
   }
+  if (args[0] === 'delete' && hasFlag(args)) {
+    return { args: argv, fallbackToCustom: false, source: 'official' };
+  }
   if (args[0] === 'delete' && args[1]) {
     return { args: ['db', 'delete', args[1]], fallbackToCustom: true, source: 'official' };
+  }
+  if (args[0] === 'list' || args[0] === 'delete') {
+    return { args: argv, fallbackToCustom: false, source: 'official' };
   }
   if (args[0] === 'sql' && args[1] && args[2]) {
     return { args: ['db', 'shell', args[1], '--execute', args[2], '--mode', 'json'], fallbackToCustom: true, source: 'official' };

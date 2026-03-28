@@ -26,6 +26,18 @@ The reverse-engineered parts are mostly the native DustBunny command paths that 
 
 In short: this project exists because the migration needed a tool that could cover the supported Bunny surface first, then fill the practical gaps safely where the official CLI or docs were not enough yet.
 
+## Parity Status
+
+DustBunny is intended to have parity with the documented official Bunny CLI surface by routing those official commands through Bunny's own CLI.
+
+That means:
+
+- documented official Bunny CLI commands should work from DustBunny too
+- DustBunny-only commands are extra operator workflows added on top
+- parity depends on the current published `@bunny.net/cli` package and the routing logic in `src/official-cli.mjs`
+
+For the current split between official parity and DustBunny-only additions, see [docs/API-MAPPING.md](/home/merm/projects/dustbunny/docs/API-MAPPING.md).
+
 ## Install
 
 ```bash
@@ -108,6 +120,22 @@ Validation behavior:
 - Scale and TTL values are normalized to numbers where the API expects numbers.
 - Database date ranges are validated and converted to ISO timestamps.
 
+## Dependencies
+
+DustBunny depends on:
+
+- Node.js 18+ (built-in `fetch`)
+- Bunny API credentials
+- Bunny APIs at `https://api.bunny.net` and `https://api.bunny.net/database`
+- official Bunny CLI availability through one of:
+  - `DUSTBUNNY_OFFICIAL_CLI_BIN`
+  - local `bunny` binary on `PATH`
+  - `npx -y @bunny.net/cli@<version>`
+
+Optional but important runtime dependency:
+
+- the published official Bunny CLI package `@bunny.net/cli` for parity with documented Bunny commands
+
 ## Fallback logic
 
 DustBunny includes deliberate fallback behavior so it is safer to use against changing Bunny responses.
@@ -133,7 +161,17 @@ Current passthrough coverage:
 - `scripts ...`
 - `db list`
 - `db create <name> [primaryRegion] [storageRegion] [replicaCsv]`
+- `db show ...`
 - `db delete <idOrName>`
+- `db regions list ...`
+- `db regions add ...`
+- `db regions remove ...`
+- `db regions update ...`
+- `db usage ...` in official Bunny CLI shape
+- `db quickstart ...`
+- `db shell ...`
+- `db tokens create ...`
+- `db tokens invalidate ...`
 - `db sql <idOrName> <sql>`
 - `db query <idOrName> <sql>`
 - `db exec <idOrName> <sql>`
@@ -149,6 +187,8 @@ Why the coverage is selective:
 - DustBunny only delegates commands that are documented by the official package or can be translated safely.
 - App, DNS, Pull Zone, and several advanced DB inspection commands stay local because DustBunny's command model is different or richer than the official CLI's documented interface.
 - Those local paths are the parts most shaped by reverse engineering during the Bunny migration work.
+
+DustBunny-only additions are called out in [docs/API-MAPPING.md](/home/merm/projects/dustbunny/docs/API-MAPPING.md) under `DustBunny-only commands`.
 
 Routing controls:
 
@@ -332,6 +372,11 @@ See [docs/API-MAPPING.md](/home/merm/projects/dustbunny/docs/API-MAPPING.md) for
 - official Bunny CLI passthrough
 - DustBunny native implementation
 - fallback behavior
+
+Release process:
+
+- run `npm run check:official-cli`
+- review [docs/RELEASE-CHECKLIST.md](/home/merm/projects/dustbunny/docs/RELEASE-CHECKLIST.md)
 
 ## Privacy and public-safety
 
