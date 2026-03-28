@@ -20,19 +20,24 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 
 ## Architectural Decisions
 
-- Single-file CLI for easy inspection and low setup overhead
+- Runtime code is now split under `src/` with a thin `bin/` entrypoint
 - Direct Bunny API calls using `fetch`
 - No dependency on Back Office modules, configs, or docs
 - Database command surface is included and explicitly documented as experimental because Bunny may change those APIs
 - Official Bunny CLI is preferred for selected documented commands via `npx -y @bunny.net/cli@latest`
 - DustBunny maps `BUNNY_API_KEY` to `BUNNYNET_API_KEY` for official passthrough
 - Official passthrough falls back to DustBunny's native implementation only when the command has a compatible local path
+- Official passthrough can prefer a configured binary, a local `bunny` binary, or `npx`, in that order
+- Routing flags now exist: `--prefer-official`, `--prefer-native`, `--no-fallback`
 
 ## Read First
 
 - `README.md`
 - `docs/API-MAPPING.md`
+- `src/config.mjs`
+- `src/official-cli.mjs`
 - `bin/dustbunny.mjs`
+- `src/cli.mjs`
 - `test/dustbunny.test.mjs`
 
 ## Integration Points

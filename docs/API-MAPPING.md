@@ -100,3 +100,22 @@ When DustBunny calls the official Bunny CLI, it maps:
 - `BUNNY_API_KEY` -> `BUNNYNET_API_KEY`
 
 This lets a DustBunny user keep using the existing auth setup while still benefiting from the official CLI where possible.
+
+## Official CLI resolution
+
+When DustBunny needs the official CLI, it resolves it in this order:
+
+1. `DUSTBUNNY_OFFICIAL_CLI_BIN`
+2. local `bunny` on `PATH`
+3. `npx -y @bunny.net/cli@<version>`
+
+Version source:
+
+- `DUSTBUNNY_OFFICIAL_CLI_VERSION`
+- otherwise `latest`
+
+## Routing flags
+
+- `--prefer-official`
+- `--prefer-native`
+- `--no-fallback`

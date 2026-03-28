@@ -6,9 +6,16 @@ import { join } from 'path';
 
 import {
   CliError,
-  applyAppSpec,
+  getDatabaseSpecCachePath,
+} from '../src/config.mjs';
+import {
   buildOfficialBunnyArgs,
   buildOfficialBunnyEnv,
+  resolveOfficialBunnyInvocation,
+  runOfficialBunnyCli,
+} from '../src/official-cli.mjs';
+import {
+  applyAppSpec,
   buildSqlPipelineUrl,
   buildSqlRequests,
   buildAppSpec,
@@ -17,7 +24,6 @@ import {
   formatIsoDate,
   generateDatabaseGroupToken,
   generateDatabaseToken,
-  getDatabaseSpecCachePath,
   readCachedDatabaseSpec,
   refreshDatabaseSpecCache,
   showActiveDatabaseUsage,
@@ -28,14 +34,14 @@ import {
   mutateReplicaRegion,
   parseEnvText,
   parseImageRef,
+  parseRoutingFlags,
   runDatabaseDoctor,
   runDatabaseSql,
   runCli,
-  runOfficialBunnyCli,
   setDatabaseRegions,
   syncEnv,
   waitForApp,
-} from '../bin/dustbunny.mjs';
+} from '../src/cli.mjs';
 
 function createApp(overrides = {}) {
   return {
@@ -695,6 +701,35 @@ test('buildOfficialBunnyEnv maps DustBunny auth into official Bunny env names', 
   assert.equal(env.BUNNYNET_API_KEY, 'abc123');
 });
 
+test('resolveOfficialBunnyInvocation honors pinned version env', () => {
+  const invocation = resolveOfficialBunnyInvocation({
+    DUSTBUNNY_OFFICIAL_CLI_VERSION: '0.2.1',
+  });
+  if (invocation.mode === 'npx') {
+    assert.deepEqual(invocation.argsPrefix, ['-y', '@bunny.net/cli@0.2.1']);
+  } else {
+    assert.equal(invocation.version, 'path');
+  }
+});
+
+test('resolveOfficialBunnyInvocation honors configured binary override', () => {
+  const invocation = resolveOfficialBunnyInvocation({
+    DUSTBUNNY_OFFICIAL_CLI_BIN: '/tmp/custom-bunny',
+    DUSTBUNNY_OFFICIAL_CLI_VERSION: '0.2.1',
+  });
+  assert.equal(invocation.mode, 'configured-bin');
+  assert.equal(invocation.command, '/tmp/custom-bunny');
+});
+
+test('parseRoutingFlags strips routing controls from argv', () => {
+  assert.deepEqual(parseRoutingFlags(['--prefer-native', '--no-fallback', 'db', 'list']), {
+    preferOfficial: false,
+    preferNative: true,
+    noFallback: true,
+    argv: ['db', 'list'],
+  });
+});
+
 test('runOfficialBunnyCli uses injected runner for official passthrough', async () => {
   const calls = [];
   const result = await runOfficialBunnyCli(
@@ -731,13 +766,32 @@ test('runCli prefers official Bunny CLI for supported commands', async () => {
   assert.deepEqual(officialCalls[0], ['login']);
 });
 
-test('runCli falls back to DustBunny custom implementation when official mapped command fails', async () => {
+test('runCli skips official passthrough when --prefer-native is set', async () => {
   const client = createClient();
   const officialCalls = [];
-  const code = await runCli(['db', 'list'], {
+  const code = await runCli(['--prefer-native', 'db', 'list'], {
     client,
     stdout: client.stdout,
     stderr: { write() {} },
+    officialRunner: async (args) => {
+      officialCalls.push(args);
+      return { code: 0 };
+    },
+  });
+
+  assert.equal(code, 0);
+  assert.equal(officialCalls.length, 0);
+  assert.match(client.stdout.chunks.join(''), /demo-db/);
+});
+
+test('runCli falls back to DustBunny custom implementation when official mapped command fails', async () => {
+  const client = createClient();
+  const officialCalls = [];
+  const stderr = { chunks: [], write(chunk) { this.chunks.push(chunk); } };
+  const code = await runCli(['db', 'list'], {
+    client,
+    stdout: client.stdout,
+    stderr,
     officialRunner: async (args) => {
       officialCalls.push(args);
       return { code: 1 };
@@ -747,6 +801,20 @@ test('runCli falls back to DustBunny custom implementation when official mapped 
   assert.equal(code, 0);
   assert.deepEqual(officialCalls[0], ['db', 'list']);
   assert.match(client.stdout.chunks.join(''), /demo-db/);
+  assert.match(stderr.chunks.join(''), /falling back to native implementation/);
+});
+
+test('runCli honors --no-fallback for official mapped commands', async () => {
+  const client = createClient();
+  const code = await runCli(['--no-fallback', 'db', 'list'], {
+    client,
+    stdout: client.stdout,
+    stderr: { write() {} },
+    officialRunner: async () => ({ code: 9 }),
+  });
+
+  assert.equal(code, 9);
+  assert.equal(client.stdout.chunks.length, 0);
 });
 
 test('runCli refreshes DB spec and appends drift details on DB HTTP failure', async () => {

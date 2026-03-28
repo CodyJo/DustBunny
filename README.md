@@ -59,7 +59,19 @@ DustBunny makes direct HTTPS calls to:
 
 DustBunny can also execute the official Bunny CLI through:
 
+- a locally installed `bunny` binary when one is available on `PATH`
 - `npx -y @bunny.net/cli@latest ...`
+
+Resolution order for official passthrough:
+
+1. `DUSTBUNNY_OFFICIAL_CLI_BIN` if set
+2. local `bunny` on `PATH`
+3. `npx -y @bunny.net/cli@<version>`
+
+Version pinning:
+
+- `DUSTBUNNY_OFFICIAL_CLI_VERSION=0.2.1` pins the `npx` fallback version
+- default is `latest`
 
 Request behavior:
 
@@ -116,6 +128,12 @@ Why the coverage is selective:
 
 - DustBunny only delegates commands that are documented by the official package or can be translated safely.
 - App, DNS, Pull Zone, and several advanced DB inspection commands stay local because DustBunny's command model is different or richer than the official CLI's documented interface.
+
+Routing controls:
+
+- `--prefer-official` forces official-first behavior when a mapping exists
+- `--prefer-native` skips official passthrough and uses DustBunny directly
+- `--no-fallback` disables the native fallback path after an official CLI failure
 
 ### Response-shape fallback
 
