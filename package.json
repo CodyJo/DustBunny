@@ -1,0 +1,25 @@
+{
+  "name": "dustbunny",
+  "version": "0.1.0",
+  "description": "CLI for Bunny.net Magic Containers, DNS, and Pull Zones.",
+  "type": "module",
+  "bin": {
+    "dustbunny": "./bin/dustbunny.mjs"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "bunny",
+    "bunny.net",
+    "cdn",
+    "dns",
+    "cli",
+    "magic-containers"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:CodyJo/DustBunny.git"
+  },
+  "license": "MIT"
+}
