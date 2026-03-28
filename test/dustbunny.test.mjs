@@ -20,6 +20,7 @@ import {
   buildSqlPipelineUrl,
   buildSqlRequests,
   buildAppSpec,
+  createApiClient,
   createDatabase,
   createAppFromSpec,
   formatIsoDate,
@@ -185,6 +186,244 @@ function createClient(app = createApp()) {
                 result: {
                   cols: [{ name: 'id' }, { name: 'name' }],
                   rows: [[{ value: '1' }, { value: 'fuel' }]],
+                  affected_row_count: 0,
+                  last_insert_rowid: null,
+                  replication_index: 'ri_1',
+                },
+              },
+            }],
+          });
+        },
+      };
+    },
+  };
+}
+
+function createOpsClient() {
+  const stdout = { chunks: [], write(chunk) { this.chunks.push(chunk); } };
+  const calls = {
+    get: [],
+    post: [],
+    put: [],
+    patch: [],
+    delete: [],
+  };
+
+  const app = createApp({
+    status: 'running',
+    displayEndpoint: { address: 'demo-web.bunnyapp.io' },
+    containerInstances: [{ id: 'instance-1' }],
+  });
+
+  const zone = {
+    Id: 77,
+    Domain: 'example.com',
+    RecordsCount: 2,
+    Records: [
+      { Id: 10, Name: 'www', Type: 2, Value: 'target.example.com', Ttl: 300 },
+      { Id: 11, Name: 'cdn', Type: 7, PullZoneId: 9001, Ttl: 60 },
+    ],
+  };
+
+  const pullZone = {
+    Id: 9001,
+    Name: 'site-assets',
+    OriginUrl: 'https://origin.example.com',
+    Hostnames: [{ Value: 'cdn.example.com' }],
+  };
+
+  return {
+    stdout,
+    calls,
+    dbBearerToken: 'db-token',
+    async get(path) {
+      calls.get.push(path);
+      if (path === '/mc/apps') {
+        return { items: [app] };
+      }
+      if (path === '/mc/apps/app_123') {
+        return app;
+      }
+      if (path === '/dnszone?page=1&perPage=100') {
+        return { Items: [zone] };
+      }
+      if (path === '/dnszone/77') {
+        return zone;
+      }
+      if (path === '/pullzone?page=1&perPage=100') {
+        return { Items: [pullZone] };
+      }
+      if (path === '/pullzone/loadFreeCertificate?hostname=cdn.example.com') {
+        return { ok: true };
+      }
+      throw new Error(`Unexpected get path: ${path}`);
+    },
+    async post(path, body) {
+      calls.post.push({ path, body });
+      if (path === '/mc/apps') {
+        return {
+          id: 'app_new',
+          name: body.name,
+          status: 'deploying',
+          displayEndpoint: { address: 'new.bunnyapp.io' },
+          containerTemplates: body.containerTemplates,
+        };
+      }
+      if (path === '/pullzone') {
+        return {
+          Id: 9002,
+          Name: body.Name,
+          OriginUrl: body.OriginUrl,
+        };
+      }
+      if (path === '/pullzone/9001') {
+        return {
+          Id: 9001,
+          OriginUrl: body.OriginUrl,
+        };
+      }
+      if (path === '/pullzone/9001/addHostname') {
+        return { ok: true };
+      }
+      if (path === '/pullzone/9001/setForceSSL') {
+        return { ok: true };
+      }
+      if (path === '/pullzone/9001/purgeCache') {
+        return { ok: true };
+      }
+      if (path === '/dnszone/77/records/10') {
+        return { ok: true };
+      }
+      throw new Error(`Unexpected post path: ${path}`);
+    },
+    async put(path, body) {
+      calls.put.push({ path, body });
+      if (path === '/dnszone/77/records') {
+        return { ok: true };
+      }
+      throw new Error(`Unexpected put path: ${path}`);
+    },
+    async patch(path, body) {
+      calls.patch.push({ path, body });
+      if (path === '/mc/apps/app_123') {
+        return { displayEndpoint: { address: 'patched.example.com' } };
+      }
+      throw new Error(`Unexpected patch path: ${path}`);
+    },
+    async delete(path) {
+      calls.delete.push(path);
+      if (path === '/mc/apps/app_123' || path === '/dnszone/77/records/10') {
+        return null;
+      }
+      throw new Error(`Unexpected delete path: ${path}`);
+    },
+  };
+}
+
+function createExperimentalDbClient() {
+  const stdout = { chunks: [], write(chunk) { this.chunks.push(chunk); } };
+  const calls = {
+    dbGet: [],
+    dbPost: [],
+    dbPatch: [],
+    dbDelete: [],
+    fetch: [],
+  };
+
+  const databases = [
+    {
+      id: 'db_123',
+      name: 'demo-db',
+      group_id: 'group_abc',
+      url: 'libsql://abc-demo.aws.bunnydb.io',
+    },
+    {
+      id: 'db_456',
+      name: 'target-db',
+      group_id: 'group_xyz',
+      url: 'libsql://xyz-demo.aws.bunnydb.io',
+    },
+  ];
+
+  return {
+    stdout,
+    calls,
+    dbBearerToken: 'db-token',
+    dbSpecCachePath: '/tmp/dustbunny-spec.json',
+    async dbGet(path) {
+      calls.dbGet.push(path);
+      if (path === '/v1/databases') {
+        return { databases };
+      }
+      if (path === '/v2/databases/db_123') {
+        return { db: databases[0] };
+      }
+      if (path === '/v2/databases/db_456') {
+        return { db: databases[1] };
+      }
+      if (path === '/v1/groups/group_abc') {
+        return {
+          group: {
+            id: 'group_abc',
+            storage_region: 'de',
+            primary_regions: ['de'],
+            replicas_regions: ['uk'],
+          },
+        };
+      }
+      if (path === '/v1/groups/group_xyz') {
+        return {
+          group: {
+            id: 'group_xyz',
+            storage_region: 'us',
+            primary_regions: ['us'],
+            replicas_regions: [],
+          },
+        };
+      }
+      if (path.startsWith('/v2/databases/db_123/statistics?')) {
+        return { points: [{ reads: 7 }] };
+      }
+      if (path.startsWith('/v1/groups/group_abc/stats?')) {
+        return { points: [{ cpu: 42 }] };
+      }
+      if (path === '/v2/databases/active_usage') {
+        return { stats: [{ db_id: 'db_123', reads: 2 }] };
+      }
+      throw new Error(`Unexpected dbGet path: ${path}`);
+    },
+    async dbPost(path, body) {
+      calls.dbPost.push({ path, body });
+      if (path === '/v1/databases/db_123/list_versions') {
+        return { versions: [{ id: 'v1' }] };
+      }
+      if (path === '/v1/databases/db_123/fork') {
+        return { ok: true, name: body.name };
+      }
+      if (path === '/v1/databases/db_123/restore') {
+        return { ok: true, version: body.version };
+      }
+      throw new Error(`Unexpected dbPost path: ${path}`);
+    },
+    async dbPatch(path, body) {
+      calls.dbPatch.push({ path, body });
+      return { group: { id: path.split('/').at(-1), ...body } };
+    },
+    async dbDelete(path) {
+      calls.dbDelete.push(path);
+      return null;
+    },
+    async fetchImpl(url, init) {
+      calls.fetch.push({ url, init });
+      return {
+        ok: true,
+        async text() {
+          return JSON.stringify({
+            results: [{
+              response: {
+                result: {
+                  cols: [{ name: 'value' }],
+                  rows: [[{ value: 'ok' }]],
                   affected_row_count: 0,
                   last_insert_rowid: null,
                   replication_index: 'ri_1',
@@ -680,6 +919,236 @@ test('runCli executes app scale command without legacy passthrough', async () =>
   assert.deepEqual(patches[0].autoScaling, { min: 2, max: 4 });
 });
 
+test('runCli lists apps through native app surface', async () => {
+  const client = createOpsClient();
+  const code = await runCli(['apps'], {
+    client,
+    stdout: client.stdout,
+    disableLegacyPassthrough: true,
+  });
+
+  assert.equal(code, 0);
+  assert.match(client.stdout.chunks.join(''), /demo-web/);
+});
+
+test('runCli shows app json through native app surface', async () => {
+  const client = createOpsClient();
+  const code = await runCli(['app', 'app_123', '--json'], {
+    client,
+    stdout: client.stdout,
+    disableLegacyPassthrough: true,
+  });
+
+  assert.equal(code, 0);
+  assert.match(client.stdout.chunks.join(''), /"name": "demo-web"/);
+});
+
+test('runCli deletes app through native app surface', async () => {
+  const client = createOpsClient();
+  const code = await runCli(['app', 'delete', 'app_123'], {
+    client,
+    stdout: client.stdout,
+    disableLegacyPassthrough: true,
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(client.calls.delete, ['/mc/apps/app_123']);
+  assert.match(client.stdout.chunks.join(''), /Deleted demo-web/);
+});
+
+test('runCli updates app image through native app surface', async () => {
+  const client = createOpsClient();
+  const code = await runCli(['app', 'image', 'app_123', 'acme/demo:v9', 'registry_2'], {
+    client,
+    stdout: client.stdout,
+    disableLegacyPassthrough: true,
+  });
+
+  assert.equal(code, 0);
+  assert.equal(client.calls.patch[0].body.containerTemplates[0].imageTag, 'v9');
+  assert.equal(client.calls.patch[0].body.containerTemplates[0].imageRegistryId, 'registry_2');
+});
+
+test('runCli routes endpoint list, add, and remove commands', async () => {
+  const listClient = createOpsClient();
+  await runCli(['endpoint', 'list', 'app_123'], {
+    client: listClient,
+    stdout: listClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(listClient.stdout.chunks.join(''), /demo-web-cdn/);
+
+  const addClient = createOpsClient();
+  await runCli(['endpoint', 'cdn', 'app_123', '8080', 'edge-cdn'], {
+    client: addClient,
+    stdout: addClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(addClient.calls.patch[0].body.containerTemplates[0].endpoints.at(-1).displayName, 'edge-cdn');
+
+  const removeClient = createOpsClient();
+  await runCli(['endpoint', 'remove', 'app_123', 'demo-web-cdn'], {
+    client: removeClient,
+    stdout: removeClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(removeClient.calls.patch[0].body.containerTemplates[0].endpoints.length, 0);
+});
+
+test('runCli routes dns zone and records commands', async () => {
+  const zoneClient = createOpsClient();
+  await runCli(['dns', 'zones'], {
+    client: zoneClient,
+    stdout: zoneClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(zoneClient.stdout.chunks.join(''), /example.com/);
+
+  const showClient = createOpsClient();
+  await runCli(['dns', 'zone', '77'], {
+    client: showClient,
+    stdout: showClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(showClient.stdout.chunks.join(''), /"Domain": "example.com"/);
+
+  const recordsClient = createOpsClient();
+  await runCli(['dns', 'records', '77'], {
+    client: recordsClient,
+    stdout: recordsClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(recordsClient.stdout.chunks.join(''), /Zone: example.com/);
+});
+
+test('runCli creates, updates, and deletes dns records', async () => {
+  const createClient = createOpsClient();
+  await runCli(['dns', 'set', '77', 'api', 'A', '203.0.113.10', '120'], {
+    client: createClient,
+    stdout: createClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(createClient.calls.put[0].path, '/dnszone/77/records');
+  assert.equal(createClient.calls.put[0].body.Type, 0);
+
+  const updateClient = createOpsClient();
+  await runCli(['dns', 'set', '77', 'www', 'CNAME', 'new.example.com', '600'], {
+    client: updateClient,
+    stdout: updateClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(updateClient.calls.post[0].path, '/dnszone/77/records/10');
+  assert.equal(updateClient.calls.post[0].body.Name, 'www');
+
+  const pullZoneClient = createOpsClient();
+  await runCli(['dns', 'pullzone', '77', 'assets', '9001', '60'], {
+    client: pullZoneClient,
+    stdout: pullZoneClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(pullZoneClient.calls.put[0].body.Type, 7);
+
+  const deleteClient = createOpsClient();
+  await runCli(['dns', 'delete', '77', '10'], {
+    client: deleteClient,
+    stdout: deleteClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.deepEqual(deleteClient.calls.delete, ['/dnszone/77/records/10']);
+});
+
+test('runCli routes pull zone commands', async () => {
+  const listClient = createOpsClient();
+  await runCli(['pz', 'list'], {
+    client: listClient,
+    stdout: listClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(listClient.stdout.chunks.join(''), /site-assets/);
+
+  const createClient = createOpsClient();
+  await runCli(['pz', 'create', 'media', 'https://origin.example.com'], {
+    client: createClient,
+    stdout: createClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(createClient.calls.post[0].path, '/pullzone');
+
+  const originClient = createOpsClient();
+  await runCli(['pz', 'origin', '9001', 'https://new-origin.example.com'], {
+    client: originClient,
+    stdout: originClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(originClient.calls.post[0].path, '/pullzone/9001');
+
+  const hostnameClient = createOpsClient();
+  await runCli(['pz', 'hostname', '9001', 'assets.example.com'], {
+    client: hostnameClient,
+    stdout: hostnameClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(hostnameClient.calls.post[0].path, '/pullzone/9001/addHostname');
+
+  const sslClient = createOpsClient();
+  await runCli(['pz', 'ssl', '9001', 'cdn.example.com'], {
+    client: sslClient,
+    stdout: sslClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(sslClient.calls.get.at(-1), '/pullzone/loadFreeCertificate?hostname=cdn.example.com');
+  assert.equal(sslClient.calls.post[0].path, '/pullzone/9001/setForceSSL');
+
+  const purgeClient = createOpsClient();
+  await runCli(['pz', 'purge', '9001'], {
+    client: purgeClient,
+    stdout: purgeClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(purgeClient.calls.post[0].path, '/pullzone/9001/purgeCache');
+});
+
+test('runCli health command reports response body and errors', async () => {
+  const stdout = { chunks: [], write(chunk) { this.chunks.push(chunk); } };
+  const code = await runCli(['health', 'status.example.com'], {
+    client: { stdout },
+    stdout,
+    disableLegacyPassthrough: true,
+    fetchImpl: async () => ({
+      status: 200,
+      async text() {
+        return 'ok';
+      },
+    }),
+  });
+
+  assert.equal(code, 0);
+  assert.match(stdout.chunks.join(''), /HTTP 200/);
+
+  await assert.rejects(
+    runCli(['health', 'status.example.com'], {
+      client: { stdout: { write() {} } },
+      stdout: { write() {} },
+      disableLegacyPassthrough: true,
+      fetchImpl: async () => {
+        throw new Error('network down');
+      },
+    }),
+    /Health check failed/,
+  );
+});
+
+test('runCli setup command prints setup guidance', async () => {
+  const stdout = { chunks: [], write(chunk) { this.chunks.push(chunk); } };
+  const code = await runCli(['setup'], {
+    stdout,
+    stderr: { write() {} },
+  });
+
+  assert.equal(code, 0);
+  assert.match(stdout.chunks.join(''), /npm run setup/);
+});
+
 test('runCli executes database replica add command without legacy passthrough', async () => {
   const client = createClient();
   const code = await runCli(['--experimental', 'db', 'replica', 'add', 'demo-db', 'sg'], {
@@ -846,6 +1315,17 @@ test('runCli prefers official Bunny CLI for supported commands', async () => {
   assert.deepEqual(officialCalls[0], ['login']);
 });
 
+test('runCli surfaces official Bunny CLI thrown errors when fallback is not allowed', async () => {
+  await assert.rejects(
+    runCli(['login'], {
+      stdout: { write() {} },
+      stderr: { write() {} },
+      officialRunner: async () => ({ code: 1, error: new Error('auth failed') }),
+    }),
+    /Official Bunny CLI failed for login: auth failed/,
+  );
+});
+
 test('runCli skips official passthrough when --prefer-native is set', async () => {
   const client = createClient();
   const officialCalls = [];
@@ -905,6 +1385,16 @@ test('runCli blocks experimental db commands by default', async () => {
       officialRunner: async () => ({ code: 0 }),
     }),
     /experimental and disabled by default/,
+  );
+});
+
+test('runCli rejects unsupported commands without support-development mode', async () => {
+  await assert.rejects(
+    runCli(['future', 'thing'], {
+      stdout: { write() {} },
+      stderr: { write() {} },
+    }),
+    /Unsupported command: future thing/,
   );
 });
 
@@ -1005,4 +1495,192 @@ test('runCli refreshes DB spec and appends drift details on DB HTTP failure', as
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('runCli routes experimental db group, spec, and delete commands', async () => {
+  const groupClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'group', 'demo-db'], {
+    client: groupClient,
+    stdout: groupClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(groupClient.stdout.chunks.join(''), /group_abc/);
+
+  const specClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'spec', 'demo-db'], {
+    client: specClient,
+    stdout: specClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(specClient.stdout.chunks.join(''), /"database"/);
+  assert.match(specClient.stdout.chunks.join(''), /"group"/);
+
+  const deleteClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'delete', 'demo-db'], {
+    client: deleteClient,
+    stdout: deleteClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.deepEqual(deleteClient.calls.dbDelete, ['/v2/databases/db_123']);
+});
+
+test('runCli routes experimental db mirror, versions, fork, and restore commands', async () => {
+  const mirrorClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'mirror', 'demo-db', 'target-db'], {
+    client: mirrorClient,
+    stdout: mirrorClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(mirrorClient.calls.dbPatch[0].path, '/v1/groups/group_xyz');
+
+  const versionsClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'versions', 'demo-db', '5'], {
+    client: versionsClient,
+    stdout: versionsClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(versionsClient.calls.dbPost[0].path, '/v1/databases/db_123/list_versions');
+
+  const forkClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'fork', 'demo-db', 'demo-db-copy'], {
+    client: forkClient,
+    stdout: forkClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(forkClient.calls.dbPost[0].path, '/v1/databases/db_123/fork');
+
+  const restoreClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'restore', 'demo-db', 'v1'], {
+    client: restoreClient,
+    stdout: restoreClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(restoreClient.calls.dbPost[0].path, '/v1/databases/db_123/restore');
+});
+
+test('runCli routes experimental db sql wrapper commands and stats', async () => {
+  const schemaClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'schema', 'demo-db'], {
+    client: schemaClient,
+    stdout: schemaClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(JSON.parse(schemaClient.calls.fetch[0].init.body).requests[0].stmt.sql, /sqlite_master/);
+
+  const indexClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'indexes', 'demo-db', 'users'], {
+    client: indexClient,
+    stdout: indexClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(JSON.parse(indexClient.calls.fetch[0].init.body).requests[0].stmt.sql, /tbl_name = \?/);
+
+  const pragmaClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'pragma', 'demo-db', 'journal_mode'], {
+    client: pragmaClient,
+    stdout: pragmaClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(JSON.parse(pragmaClient.calls.fetch[0].init.body).requests[0].stmt.sql, /pragma journal_mode/);
+
+  const integrityClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'integrity-check', 'demo-db'], {
+    client: integrityClient,
+    stdout: integrityClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(JSON.parse(integrityClient.calls.fetch[0].init.body).requests[0].stmt.sql, /integrity_check/);
+
+  const fkClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'fk-check', 'demo-db'], {
+    client: fkClient,
+    stdout: fkClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(JSON.parse(fkClient.calls.fetch[0].init.body).requests[0].stmt.sql, /foreign_key_check/);
+
+  const dumpClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'dump', 'schema', 'demo-db'], {
+    client: dumpClient,
+    stdout: dumpClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(JSON.parse(dumpClient.calls.fetch[0].init.body).requests[0].stmt.sql, /sql is not null/);
+
+  const statsClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'stats', 'demo-db', '2026-03-01T00:00:00Z', '2026-03-28T00:00:00Z'], {
+    client: statsClient,
+    stdout: statsClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(statsClient.stdout.chunks.join(''), /"reads": 7/);
+
+  const groupStatsClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'group-stats', 'demo-db', '2026-03-01T00:00:00Z', '2026-03-28T00:00:00Z'], {
+    client: groupStatsClient,
+    stdout: groupStatsClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(groupStatsClient.stdout.chunks.join(''), /"cpu": 42/);
+
+  const activeUsageClient = createExperimentalDbClient();
+  await runCli(['--experimental', 'db', 'active-usage'], {
+    client: activeUsageClient,
+    stdout: activeUsageClient.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.match(activeUsageClient.stdout.chunks.join(''), /db_123/);
+});
+
+test('createApiClient fails without Bunny API key', () => {
+  assert.throws(
+    () => createApiClient({ env: {}, config: {}, fetchImpl: async () => ({}) }),
+    /No Bunny API key found/,
+  );
+});
+
+test('createApiClient parses json, text, and error responses', async () => {
+  const requests = [];
+  const client = createApiClient({
+    env: { BUNNY_API_KEY: 'abc123' },
+    config: {},
+    stdout: { write() {} },
+    fetchImpl: async (url, init) => {
+      requests.push({ url, init });
+      if (url.endsWith('/json')) {
+        return {
+          ok: true,
+          async text() {
+            return JSON.stringify({ ok: true });
+          },
+        };
+      }
+      if (url.endsWith('/text')) {
+        return {
+          ok: true,
+          async text() {
+            return 'plain text';
+          },
+        };
+      }
+      return {
+        ok: false,
+        status: 500,
+        async text() {
+          return JSON.stringify({ error: 'boom' });
+        },
+      };
+    },
+  });
+
+  const json = await client.get('/json');
+  const text = await client.get('/text');
+  assert.deepEqual(json, { ok: true });
+  assert.equal(text, 'plain text');
+  assert.equal(requests[0].init.headers.AccessKey, 'abc123');
+
+  await assert.rejects(
+    client.get('/error'),
+    /HTTP 500 GET \/error/,
+  );
 });

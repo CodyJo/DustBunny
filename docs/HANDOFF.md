@@ -17,11 +17,13 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - Added `docs/ARCHITECTURE.md` with Mermaid diagrams for routing, dependencies, and experimental gating
 - Added agent-oriented documentation and Mermaid flow guidance for using DustBunny safely in coding-agent workflows
 - Added opt-in Support Development Mode docs and a local setup script for enabling it
+- Expanded regression coverage across native app, DNS, Pull Zone, health, setup, official passthrough error handling, and experimental DB routing
 
 ## Pending
 
 - If desired, publish to npm after confirming package naming
 - Expand test coverage for DNS and Pull Zone mutations with mocked clients
+- If desired, add coverage for setup-script internals and a few remaining low-level error branches in `src/cli.mjs`
 
 ## Architectural Decisions
 
@@ -36,6 +38,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - Official passthrough can prefer a configured binary, a local `bunny` binary, or `npx`, in that order
 - Routing flags now exist: `--prefer-official`, `--prefer-native`, `--no-fallback`
 - Support Development Mode can be enabled by flag, env var, or `~/.config/dustbunny.json`, but upstream merges still require maintainer approval
+- Current local coverage via `node --test --experimental-test-coverage` is `88.49%` lines overall, with `src/cli.mjs` at `81.19%`
 
 ## Read First
 
