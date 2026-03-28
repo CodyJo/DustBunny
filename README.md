@@ -193,8 +193,6 @@ flowchart TD
 
 ## Support Development Mode
 
-This is a good idea as an opt-in workflow, not as a default behavior.
-
 Support Development Mode is for users whose coding agents need to add local DustBunny support for Bunny workflows that are not covered yet by the documented official CLI or by DustBunny itself.
 
 It is intentionally local-first:
