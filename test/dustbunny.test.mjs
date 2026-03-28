@@ -7,6 +7,8 @@ import { join } from 'path';
 import {
   CliError,
   applyAppSpec,
+  buildOfficialBunnyArgs,
+  buildOfficialBunnyEnv,
   buildSqlPipelineUrl,
   buildSqlRequests,
   buildAppSpec,
@@ -29,6 +31,7 @@ import {
   runDatabaseDoctor,
   runDatabaseSql,
   runCli,
+  runOfficialBunnyCli,
   setDatabaseRegions,
   syncEnv,
   waitForApp,
@@ -667,6 +670,83 @@ test('runCli executes database replica add command without legacy passthrough', 
     primary_regions: ['de'],
     replicas_regions: ['uk', 'sg'],
   });
+});
+
+test('buildOfficialBunnyArgs maps documented official commands', () => {
+  assert.deepEqual(buildOfficialBunnyArgs(['login']), {
+    args: ['login'],
+    fallbackToCustom: false,
+    source: 'official',
+  });
+  assert.deepEqual(buildOfficialBunnyArgs(['db', 'create', 'demo-db', 'DE', 'DE', 'UK,NY']), {
+    args: ['db', 'create', '--name', 'demo-db', '--primary', 'DE', '--storage-region', 'DE', '--replicas', 'UK,NY'],
+    fallbackToCustom: true,
+    source: 'official',
+  });
+  assert.deepEqual(buildOfficialBunnyArgs(['db', 'sql', 'demo-db', 'select 1']), {
+    args: ['db', 'shell', 'demo-db', '--execute', 'select 1', '--mode', 'json'],
+    fallbackToCustom: true,
+    source: 'official',
+  });
+});
+
+test('buildOfficialBunnyEnv maps DustBunny auth into official Bunny env names', () => {
+  const env = buildOfficialBunnyEnv({ BUNNY_API_KEY: 'abc123' }, {});
+  assert.equal(env.BUNNYNET_API_KEY, 'abc123');
+});
+
+test('runOfficialBunnyCli uses injected runner for official passthrough', async () => {
+  const calls = [];
+  const result = await runOfficialBunnyCli(
+    { args: ['db', 'list'], fallbackToCustom: true, source: 'official' },
+    {
+      env: { BUNNY_API_KEY: 'abc123' },
+      config: {},
+      stdout: { write() {} },
+      stderr: { write() {} },
+      officialRunner: async (args, options) => {
+        calls.push({ args, options });
+        return { code: 0 };
+      },
+    },
+  );
+
+  assert.equal(result.code, 0);
+  assert.deepEqual(calls[0].args, ['db', 'list']);
+  assert.equal(calls[0].options.env.BUNNYNET_API_KEY, 'abc123');
+});
+
+test('runCli prefers official Bunny CLI for supported commands', async () => {
+  const officialCalls = [];
+  const code = await runCli(['login'], {
+    stdout: { write() {} },
+    stderr: { write() {} },
+    officialRunner: async (args) => {
+      officialCalls.push(args);
+      return { code: 0 };
+    },
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(officialCalls[0], ['login']);
+});
+
+test('runCli falls back to DustBunny custom implementation when official mapped command fails', async () => {
+  const client = createClient();
+  const officialCalls = [];
+  const code = await runCli(['db', 'list'], {
+    client,
+    stdout: client.stdout,
+    stderr: { write() {} },
+    officialRunner: async (args) => {
+      officialCalls.push(args);
+      return { code: 1 };
+    },
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(officialCalls[0], ['db', 'list']);
+  assert.match(client.stdout.chunks.join(''), /demo-db/);
 });
 
 test('runCli refreshes DB spec and appends drift details on DB HTTP failure', async () => {

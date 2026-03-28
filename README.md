@@ -4,6 +4,8 @@ DustBunny is a public CLI for Bunny.net Magic Containers, DNS zones, Pull Zones,
 
 This repo is derived from the private Back Office CLI, but it does not include your private config, credentials, customer data, or project-specific operational context.
 
+As of March 20, 2026, DustBunny is designed to prefer the official Bunny CLI package `@bunny.net/cli` for documented supported commands, then fall back to DustBunny's custom implementation when that mapped command has a compatible local equivalent.
+
 ## Install
 
 ```bash
@@ -31,6 +33,8 @@ Database commands can also use:
 
 If the DB-specific access key is not set, DustBunny falls back to the main Bunny API key for database control-plane requests.
 
+When DustBunny delegates to the official Bunny CLI, it automatically maps your existing `BUNNY_API_KEY` into the official CLI's expected `BUNNYNET_API_KEY` environment variable so you do not have to maintain two separate auth setups.
+
 Example config:
 
 ```json
@@ -52,6 +56,10 @@ DustBunny makes direct HTTPS calls to:
 
 - `https://api.bunny.net`
 - `https://api.bunny.net/database`
+
+DustBunny can also execute the official Bunny CLI through:
+
+- `npx -y @bunny.net/cli@latest ...`
 
 Request behavior:
 
@@ -77,6 +85,37 @@ DustBunny includes deliberate fallback behavior so it is safer to use against ch
 - Main auth uses `BUNNY_API_KEY` first, then Bunny config file fallback.
 - Database control-plane auth uses `BUNNY_DB_ACCESS_KEY`, then `db_access_key` from config, then falls back to the main Bunny API key.
 - Database SQL execution uses `BUNNY_DB_BEARER_TOKEN`, then `db_bearer_token` from config.
+- Official CLI passthrough uses `BUNNYNET_API_KEY`; DustBunny auto-populates it from your resolved `BUNNY_API_KEY` or `~/.config/bunnynet.json` value.
+
+### Official CLI passthrough fallback
+
+DustBunny prefers the official CLI for documented supported commands where possible.
+
+Current passthrough coverage:
+
+- `login`
+- `logout`
+- `whoami`
+- `config ...`
+- `registries ...`
+- `scripts ...`
+- `db list`
+- `db create <name> [primaryRegion] [storageRegion] [replicaCsv]`
+- `db delete <idOrName>`
+- `db sql <idOrName> <sql>`
+- `db query <idOrName> <sql>`
+- `db exec <idOrName> <sql>`
+
+Fallback rule:
+
+- If a delegated command succeeds in the official CLI, DustBunny returns that result.
+- If a delegated command fails and DustBunny has a compatible custom implementation, DustBunny falls back to its own implementation.
+- If a delegated command fails and DustBunny does not have a compatible custom implementation, the official CLI failure is returned.
+
+Why the coverage is selective:
+
+- DustBunny only delegates commands that are documented by the official package or can be translated safely.
+- App, DNS, Pull Zone, and several advanced DB inspection commands stay local because DustBunny's command model is different or richer than the official CLI's documented interface.
 
 ### Response-shape fallback
 
@@ -124,6 +163,7 @@ API notes:
 - App commands use `/mc/apps`.
 - `app spec` exports a normalized shape suitable for `app apply` or `app create-spec`.
 - `wait` checks Bunny app status and then probes `https://<displayEndpoint>/health` when an endpoint exists.
+- These commands currently run through DustBunny's native implementation, not official passthrough.
 
 ### Environment variables
 
@@ -139,6 +179,7 @@ API notes:
 - Duplicate env vars are deduplicated and sorted for stable updates.
 - `env sync` replaces the set.
 - `env merge` overlays on top of current Bunny values.
+- These commands currently run through DustBunny's native implementation.
 
 ### Endpoints
 
@@ -152,6 +193,7 @@ API notes:
 
 - Supported endpoint normalization currently covers `cdn` and `anycast`.
 - Endpoint removal can match by display name, public host, or public URL.
+- These commands currently run through DustBunny's native implementation.
 
 ### DNS
 
@@ -170,6 +212,7 @@ API notes:
 - If a matching name/type record exists, DustBunny updates it.
 - If not, DustBunny creates it.
 - `dns pullzone` is a wrapper for Bunny's Pull Zone DNS record type.
+- These commands currently run through DustBunny's native implementation.
 
 ### Pull Zones
 
@@ -186,6 +229,7 @@ API notes:
 
 - `pz ssl` first requests Bunny's free certificate load, then enables forced SSL.
 - `pz purge` accepts an empty success response as valid.
+- These commands currently run through DustBunny's native implementation.
 
 ### Health
 
@@ -197,6 +241,7 @@ API notes:
 
 - Bare hosts are converted to `https://...`.
 - The command prints status and a short body preview.
+- This command currently runs through DustBunny's native implementation.
 
 ### Experimental Bunny Database support
 
@@ -238,6 +283,16 @@ API notes:
 - SQL and batch commands require a DB bearer token because they call the pipeline endpoint directly.
 - Database identifiers can resolve by database id, name, group id, URL, or derived group id.
 - `db doctor` runs several SQL checks and composes a JSON report.
+- `db list`, `db create`, `db delete`, `db sql`, `db query`, and `db exec` now prefer official CLI passthrough first.
+- `db limits`, `db api status`, `db api sync-spec`, `db group`, `db group-token`, `db mirror`, `db spec`, `db regions set`, `db replica add/remove`, `db versions`, `db fork`, `db restore`, `db batch`, `db tables`, `db schema`, `db indexes`, `db pragma`, `db integrity-check`, `db fk-check`, `db dump schema`, `db doctor`, `db usage`, `db stats`, `db group-stats`, and `db active-usage` stay in DustBunny's custom implementation.
+
+## Command routing
+
+See [docs/API-MAPPING.md](/home/merm/projects/dustbunny/docs/API-MAPPING.md) for the current routing table between:
+
+- official Bunny CLI passthrough
+- DustBunny native implementation
+- fallback behavior
 
 ## Privacy and public-safety
 

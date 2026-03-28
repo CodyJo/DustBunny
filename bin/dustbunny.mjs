@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 import { createHash } from 'crypto';
+import { spawn } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const CONFIG_PATH = resolve(process.env.HOME || '', '.config/bunnynet.json');
@@ -1434,32 +1435,113 @@ Database commands:
   db sql <idOrName> <sql> [jsonArgs]
   DB failures trigger a best-effort refresh of Bunny's private DB OpenAPI spec and report drift.
   Note: control-plane DB commands use undocumented preview endpoints and may drift.
+  Official Bunny CLI passthrough is preferred for documented commands such as login,
+  config, registries, scripts, and selected db commands. DustBunny falls back to its
+  custom implementation when a mapped command has compatible fallback behavior.
 
 `);
 }
 
 function buildOfficialBunnyArgs(argv) {
+  const [command, ...args] = argv;
+  if (['login', 'logout', 'whoami', 'config', 'registries', 'scripts'].includes(command)) {
+    return { args: argv, fallbackToCustom: false, source: 'official' };
+  }
+
+  if (command !== 'db') return null;
+  if (args.length === 0) return { args: argv, fallbackToCustom: false, source: 'official' };
+
+  if (args[0] === 'list') {
+    return { args: ['db', 'list'], fallbackToCustom: true, source: 'official' };
+  }
+  if (args[0] === 'create' && args[1]) {
+    const officialArgs = ['db', 'create', '--name', args[1]];
+    if (args[2]) officialArgs.push('--primary', args[2]);
+    if (args[3]) officialArgs.push('--storage-region', args[3]);
+    if (args[4]) officialArgs.push('--replicas', args[4]);
+    return { args: officialArgs, fallbackToCustom: true, source: 'official' };
+  }
+  if (args[0] === 'delete' && args[1]) {
+    return { args: ['db', 'delete', args[1]], fallbackToCustom: true, source: 'official' };
+  }
+  if (args[0] === 'sql' && args[1] && args[2]) {
+    return { args: ['db', 'shell', args[1], '--execute', args[2], '--mode', 'json'], fallbackToCustom: true, source: 'official' };
+  }
+  if ((args[0] === 'query' || args[0] === 'exec') && args[1] && args[2]) {
+    return { args: ['db', 'shell', args[1], '--execute', args[2], '--mode', 'json'], fallbackToCustom: true, source: 'official' };
+  }
+
   return null;
+}
+
+function buildOfficialBunnyEnv(env, config) {
+  const resolvedApiKey = getApiKey({ env, config });
+  const officialEnv = { ...env };
+  if (resolvedApiKey && !officialEnv.BUNNYNET_API_KEY) {
+    officialEnv.BUNNYNET_API_KEY = resolvedApiKey;
+  }
+  return officialEnv;
+}
+
+async function runOfficialBunnyCli(passthrough, { env = process.env, config = loadConfig(), stdout = process.stdout, stderr = process.stderr, officialRunner } = {}) {
+  if (officialRunner) {
+    return officialRunner(passthrough.args, {
+      env: buildOfficialBunnyEnv(env, config),
+      stdout,
+      stderr,
+      fallbackToCustom: passthrough.fallbackToCustom,
+      source: passthrough.source,
+    });
+  }
+
+  return new Promise((resolvePromise) => {
+    const child = spawn('npx', ['-y', '@bunny.net/cli@latest', ...passthrough.args], {
+      env: buildOfficialBunnyEnv(env, config),
+      stdio: ['inherit', 'pipe', 'pipe'],
+    });
+
+    child.stdout.on('data', (chunk) => stdout.write(chunk));
+    child.stderr.on('data', (chunk) => stderr.write(chunk));
+    child.on('close', (code) => resolvePromise({ code: code ?? 1 }));
+    child.on('error', (error) => resolvePromise({ code: 1, error }));
+  });
 }
 
 async function runCli(argv = process.argv.slice(2), options = {}) {
   const stdout = options.stdout || process.stdout;
+  const stderr = options.stderr || process.stderr;
+  const env = options.env || process.env;
+  const config = options.config || loadConfig();
   if (argv.length === 0 || argv[0] === 'help' || argv[0] === '--help' || argv[0] === '-h') {
     showHelp(stdout);
     return 0;
   }
 
   const client = options.client || createApiClient({
-    env: options.env || process.env,
-    config: options.config || loadConfig(),
+    env,
+    config,
     fetchImpl: options.fetchImpl || fetch,
     stdout,
   });
-  const officialArgs = !options.disableOfficialPassthrough ? buildOfficialBunnyArgs(argv) : null;
+  const officialPassthrough = !(options.disableOfficialPassthrough || options.disableLegacyPassthrough) ? buildOfficialBunnyArgs(argv) : null;
 
-  if (officialArgs) {
-    fail(`Official Bunny passthrough is disabled for this command: ${argv.join(' ')}`);
-    return 0;
+  if (officialPassthrough) {
+    const result = await runOfficialBunnyCli(officialPassthrough, {
+      env,
+      config,
+      stdout,
+      stderr,
+      officialRunner: options.officialRunner,
+    });
+    if (result?.code === 0) {
+      return 0;
+    }
+    if (!officialPassthrough.fallbackToCustom) {
+      if (result?.error) {
+        fail(`Official Bunny CLI failed for ${argv.join(' ')}: ${result.error.message}`);
+      }
+      return result?.code ?? 1;
+    }
   }
 
   const [command, ...args] = argv;
@@ -1779,9 +1861,12 @@ export {
   parseSqlApiValue,
   readCachedDatabaseSpec,
   refreshDatabaseSpecCache,
+  buildOfficialBunnyArgs,
+  buildOfficialBunnyEnv,
   removeEndpoint,
   removeEnvVar,
   runCli,
+  runOfficialBunnyCli,
   runDatabaseBatch,
   runDatabaseDoctor,
   runDatabaseForeignKeyCheck,
