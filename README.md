@@ -34,9 +34,9 @@ That means:
 
 - documented official Bunny CLI commands should work from DustBunny too
 - DustBunny-only commands are extra operator workflows added on top
-- parity depends on the current published `@bunny.net/cli` package and the routing logic in `src/official-cli.mjs`
+- parity depends on the current published `@bunny.net/cli` package and the routing logic in [src/official-cli.mjs](src/official-cli.mjs)
 
-For the current split between official parity and DustBunny-only additions, see [docs/API-MAPPING.md](/home/merm/projects/dustbunny/docs/API-MAPPING.md).
+For the current split between official parity and DustBunny-only additions, see [docs/API-MAPPING.md](docs/API-MAPPING.md).
 
 ## Install
 
@@ -367,7 +367,7 @@ API notes:
 
 ## Command routing
 
-See [docs/API-MAPPING.md](/home/merm/projects/dustbunny/docs/API-MAPPING.md) for the current routing table between:
+See [docs/API-MAPPING.md](docs/API-MAPPING.md) for the current routing table between:
 
 - official Bunny CLI passthrough
 - DustBunny native implementation
@@ -376,7 +376,7 @@ See [docs/API-MAPPING.md](/home/merm/projects/dustbunny/docs/API-MAPPING.md) for
 Release process:
 
 - run `npm run check:official-cli`
-- review [docs/RELEASE-CHECKLIST.md](/home/merm/projects/dustbunny/docs/RELEASE-CHECKLIST.md)
+- review [docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md)
 
 ## Privacy and public-safety
 
