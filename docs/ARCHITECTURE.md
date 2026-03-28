@@ -48,3 +48,23 @@ flowchart TD
   D --> I[Env vars]
   D --> J[~/.config/bunnynet.json]
 ```
+
+## Agent Workflow
+
+```mermaid
+flowchart TD
+  A[Agent decides on Bunny operation] --> B[Call DustBunny]
+  B --> C{Documented official parity command?}
+  C -- Yes --> D[Route through src/official-cli.mjs]
+  C -- No --> E[Route through src/cli.mjs native path]
+  D --> F{Fallback allowed?}
+  F -- Yes --> G[Drop to native path on compatible failure]
+  F -- No --> H[Return official failure directly]
+  E --> I{Experimental path?}
+  G --> I
+  I -- No --> J[Execute request]
+  I -- Yes --> K{Experimental opt-in present?}
+  K -- No --> L[Reject]
+  K -- Yes --> J
+  J --> M[Verify result with read or wait command]
+```

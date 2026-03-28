@@ -156,6 +156,39 @@ Optional but important runtime dependency:
 - the published official Bunny CLI package `@bunny.net/cli` for parity with documented Bunny commands
 - `--experimental` or `DUSTBUNNY_ENABLE_EXPERIMENTAL=1` if you want the hidden experimental command surface
 
+## Best Use With Coding Agents
+
+DustBunny works well as the Bunny-facing layer inside agentic coding workflows because it gives agents one stable entrypoint while still leaning on the official Bunny CLI where parity matters.
+
+Best practices:
+
+- keep `BUNNY_API_KEY` scoped to the smallest environment that needs it
+- let agents use DustBunny as the primary command surface instead of mixing raw `curl`, `bunny`, and custom scripts in the same flow
+- use `--prefer-official` for release checks, CI parity checks, and any flow where you want behavior to stay close to Bunny's published CLI
+- use the native DustBunny commands for migration-style app, env, endpoint, DNS, and Pull Zone workflows where the operator ergonomics are better
+- keep `--no-fallback` for validation jobs when you need to know that the official route itself succeeded
+- keep experimental commands disabled unless an agent is explicitly doing preview or operator-only work
+- pin `DUSTBUNNY_OFFICIAL_CLI_VERSION` in CI if you want reproducible releases, then re-run parity checks against `latest` before publishing a new DustBunny version
+- have agents run `npm run check:official-cli` as part of release prep so routing drift against `@bunny.net/cli` is caught before publish
+
+Agent workflow example:
+
+```mermaid
+flowchart TD
+  A[Agent plans Bunny change] --> B[Use DustBunny command first]
+  B --> C{Official parity path available?}
+  C -- Yes --> D[Run with prefer-official for validation]
+  C -- No --> E[Run native DustBunny workflow]
+  D --> F{Need deterministic release behavior?}
+  F -- Yes --> G[Pin official CLI version and run parity check]
+  F -- No --> H[Track latest official CLI]
+  E --> I[Use DustBunny-native operator helpers]
+  G --> J[Apply change]
+  H --> J
+  I --> J
+  J --> K[Verify with wait or follow-up read commands]
+```
+
 ## Fallback logic
 
 DustBunny includes deliberate fallback behavior so it is safer to use against changing Bunny responses.

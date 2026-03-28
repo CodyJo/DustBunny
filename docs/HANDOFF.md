@@ -15,6 +15,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - Added `scripts/check-official-cli.mjs` and `docs/RELEASE-CHECKLIST.md` for parity/release audits
 - Added `docs/EXPERIMENTAL.md` for hidden DB/admin commands that require explicit opt-in
 - Added `docs/ARCHITECTURE.md` with Mermaid diagrams for routing, dependencies, and experimental gating
+- Added agent-oriented documentation and Mermaid flow guidance for using DustBunny safely in coding-agent workflows
 
 ## Pending
 
