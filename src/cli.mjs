@@ -7,12 +7,15 @@ import {
   CliError,
   DATABASE_API_BASE,
   DATABASE_PRIVATE_SPEC_URL,
+  DUSTBUNNY_CONFIG_PATH,
   fail,
   getApiKey,
   getDatabaseAccessKey,
   getDatabaseBearerToken,
   getDatabaseSpecCachePath,
+  isSupportDevelopmentEnabled,
   loadConfig,
+  loadDustBunnyConfig,
 } from './config.mjs';
 import {
   buildOfficialBunnyArgs,
@@ -1331,7 +1334,37 @@ async function showActiveDatabaseUsage(client) {
   client.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 
-function showHelp(stdout = process.stdout, { experimental = false } = {}) {
+function showSupportDevelopmentGuide(stdout = process.stdout) {
+  stdout.write(`
+Support Development Mode
+
+This mode is for users who want their coding agents to extend DustBunny locally when
+they hit a Bunny workflow gap that is not covered by the documented official CLI or
+by DustBunny itself.
+
+How it works:
+  1. Enable support development mode with:
+     - dustbunny --support-development help
+     - or DUSTBUNNY_SUPPORT_DEVELOPMENT=1
+     - or features.supportDevelopment=true in ${DUSTBUNNY_CONFIG_PATH}
+  2. Let your agent add the missing local support in this repo.
+  3. Verify the change with npm test and npm run check:official-cli.
+  4. Propose the change upstream for review.
+
+Approval boundary:
+  Local support-development changes are allowed in your own clone.
+  Merging those changes into the main DustBunny product requires maintainer approval.
+
+Recommended files:
+  - src/official-cli.mjs for official parity routing
+  - src/cli.mjs for DustBunny-native workflows
+  - docs/API-MAPPING.md for parity vs DustBunny-only coverage
+  - docs/SUPPORT-DEVELOPMENT.md for the full workflow
+
+`);
+}
+
+function showHelp(stdout = process.stdout, { experimental = false, supportDevelopment = false } = {}) {
   stdout.write(`
 DustBunny — Bunny app + database operator CLI
 
@@ -1377,6 +1410,8 @@ Wait:
 
 Utility:
   health <url>
+  support-development            Show the opt-in local extension workflow
+  setup                          Print setup script usage
 
 Database commands:
   db list
@@ -1431,8 +1466,12 @@ Routing flags:
   --prefer-native              Skip official Bunny CLI passthrough and use DustBunny
   --no-fallback                If official Bunny CLI fails, do not fall back
   --experimental               Enable DustBunny experimental DB/admin command surface
+  --support-development        Enable local gap-filling guidance for this run
 
 `);
+  if (supportDevelopment) {
+    stdout.write('Support-development mode is enabled for this run.\n\n');
+  }
 }
 
 function parseRoutingFlags(argv) {
@@ -1441,6 +1480,7 @@ function parseRoutingFlags(argv) {
     preferNative: false,
     noFallback: false,
     experimental: false,
+    supportDevelopment: false,
     argv: [],
   };
 
@@ -1461,6 +1501,10 @@ function parseRoutingFlags(argv) {
       routing.experimental = true;
       continue;
     }
+    if (arg === '--support-development') {
+      routing.supportDevelopment = true;
+      continue;
+    }
     routing.argv.push(arg);
   }
 
@@ -1469,6 +1513,41 @@ function parseRoutingFlags(argv) {
 
 function isExperimentalEnabled(routing, env = process.env) {
   return routing.experimental || env.DUSTBUNNY_ENABLE_EXPERIMENTAL === '1';
+}
+
+function isSupportDevelopmentModeEnabled(routing, env = process.env, dustbunnyConfig = loadDustBunnyConfig()) {
+  return routing.supportDevelopment || isSupportDevelopmentEnabled({ env, dustbunnyConfig });
+}
+
+function buildSupportDevelopmentError(argv) {
+  return [
+    `Unsupported command: ${argv.join(' ')}`,
+    '',
+    'Support Development Mode is meant for local gap-filling when your agent needs a Bunny workflow that is not covered yet.',
+    'Enable it with --support-development, DUSTBUNNY_SUPPORT_DEVELOPMENT=1, or the DustBunny setup script.',
+    'Then extend your local clone, verify with npm test and npm run check:official-cli, and propose upstream changes for maintainer approval.',
+    'See docs/SUPPORT-DEVELOPMENT.md.',
+  ].join('\n');
+}
+
+function isKnownTopLevelCommand(command) {
+  return [
+    'apps',
+    'app',
+    'login',
+    'logout',
+    'whoami',
+    'config',
+    'registries',
+    'scripts',
+    'env',
+    'endpoint',
+    'wait',
+    'dns',
+    'pz',
+    'health',
+    'db',
+  ].includes(command);
 }
 
 function isExperimentalDbCommand(args) {
@@ -1512,12 +1591,34 @@ async function runCli(argv = process.argv.slice(2), options = {}) {
   const stderr = options.stderr || process.stderr;
   const env = options.env || process.env;
   const config = options.config || loadConfig();
+  const dustbunnyConfig = options.dustbunnyConfig || loadDustBunnyConfig();
   const routing = parseRoutingFlags(argv);
   argv = routing.argv;
+  const supportDevelopment = isSupportDevelopmentModeEnabled(routing, env, dustbunnyConfig);
 
   if (argv.length === 0 || argv[0] === 'help' || argv[0] === '--help' || argv[0] === '-h') {
-    showHelp(stdout, { experimental: isExperimentalEnabled(routing, env) });
+    showHelp(stdout, {
+      experimental: isExperimentalEnabled(routing, env),
+      supportDevelopment,
+    });
     return 0;
+  }
+
+  if (argv[0] === 'support-development') {
+    showSupportDevelopmentGuide(stdout);
+    return 0;
+  }
+
+  if (argv[0] === 'setup') {
+    stdout.write('Run npm run setup to check dependencies and configure local DustBunny settings.\n');
+    return 0;
+  }
+
+  if (!isKnownTopLevelCommand(argv[0])) {
+    if (supportDevelopment) {
+      fail(buildSupportDevelopmentError(argv));
+    }
+    fail(`Unsupported command: ${argv.join(' ')}`);
   }
 
   const client = options.client || createApiClient({
@@ -1867,8 +1968,11 @@ export {
   parseImageRef,
   parseRoutingFlags,
   isExperimentalEnabled,
+  isSupportDevelopmentModeEnabled,
   isExperimentalDbCommand,
   assertExperimentalEnabled,
+  buildSupportDevelopmentError,
+  isKnownTopLevelCommand,
   parseSqlApiValue,
   readCachedDatabaseSpec,
   refreshDatabaseSpecCache,

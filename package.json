@@ -8,7 +8,8 @@
   },
   "scripts": {
     "test": "node --test",
-    "check:official-cli": "node ./scripts/check-official-cli.mjs"
+    "check:official-cli": "node ./scripts/check-official-cli.mjs",
+    "setup": "node ./scripts/setup.mjs"
   },
   "engines": {
     "node": ">=18"

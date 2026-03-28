@@ -7,6 +7,7 @@ import { join } from 'path';
 import {
   CliError,
   getDatabaseSpecCachePath,
+  isSupportDevelopmentEnabled,
 } from '../src/config.mjs';
 import {
   buildOfficialBunnyArgs,
@@ -35,12 +36,14 @@ import {
   parseEnvText,
   parseImageRef,
   parseRoutingFlags,
+  isSupportDevelopmentModeEnabled,
   runDatabaseDoctor,
   runDatabaseSql,
   runCli,
   setDatabaseRegions,
   syncEnv,
   waitForApp,
+  buildSupportDevelopmentError,
 } from '../src/cli.mjs';
 
 function createApp(overrides = {}) {
@@ -572,6 +575,21 @@ test('getDatabaseSpecCachePath prefers env override', () => {
   );
 });
 
+test('isSupportDevelopmentEnabled prefers env and dustbunny config opt-in', () => {
+  assert.equal(
+    isSupportDevelopmentEnabled({ env: { DUSTBUNNY_SUPPORT_DEVELOPMENT: '1' }, dustbunnyConfig: {} }),
+    true,
+  );
+  assert.equal(
+    isSupportDevelopmentEnabled({ env: {}, dustbunnyConfig: { features: { supportDevelopment: true } } }),
+    true,
+  );
+  assert.equal(
+    isSupportDevelopmentEnabled({ env: {}, dustbunnyConfig: {} }),
+    false,
+  );
+});
+
 test('refreshDatabaseSpecCache fetches and persists Bunny DB private spec', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'bunny-cli-spec-cache-'));
   const cachePath = join(dir, 'private-api.json');
@@ -747,6 +765,7 @@ test('parseRoutingFlags strips routing controls from argv', () => {
     preferNative: true,
     noFallback: true,
     experimental: false,
+    supportDevelopment: false,
     argv: ['db', 'list'],
   });
 });
@@ -757,8 +776,38 @@ test('parseRoutingFlags captures experimental flag', () => {
     preferNative: false,
     noFallback: false,
     experimental: true,
+    supportDevelopment: false,
     argv: ['db', 'doctor', 'demo-db'],
   });
+});
+
+test('parseRoutingFlags captures support-development flag', () => {
+  assert.deepEqual(parseRoutingFlags(['--support-development', 'foo', 'bar']), {
+    preferOfficial: false,
+    preferNative: false,
+    noFallback: false,
+    experimental: false,
+    supportDevelopment: true,
+    argv: ['foo', 'bar'],
+  });
+});
+
+test('isSupportDevelopmentModeEnabled respects routing and config', () => {
+  assert.equal(
+    isSupportDevelopmentModeEnabled({ supportDevelopment: true }, {}, {}),
+    true,
+  );
+  assert.equal(
+    isSupportDevelopmentModeEnabled({ supportDevelopment: false }, {}, { features: { supportDevelopment: true } }),
+    true,
+  );
+});
+
+test('buildSupportDevelopmentError explains local-first approval flow', () => {
+  const message = buildSupportDevelopmentError(['db', 'future-command']);
+  assert.match(message, /Support Development Mode/);
+  assert.match(message, /maintainer approval/);
+  assert.match(message, /docs\/SUPPORT-DEVELOPMENT.md/);
 });
 
 test('runOfficialBunnyCli uses injected runner for official passthrough', async () => {
@@ -856,6 +905,28 @@ test('runCli blocks experimental db commands by default', async () => {
       officialRunner: async () => ({ code: 0 }),
     }),
     /experimental and disabled by default/,
+  );
+});
+
+test('runCli shows support-development guide command', async () => {
+  const stdout = { chunks: [], write(chunk) { this.chunks.push(chunk); } };
+  const code = await runCli(['support-development'], {
+    stdout,
+    stderr: { write() {} },
+  });
+
+  assert.equal(code, 0);
+  assert.match(stdout.chunks.join(''), /Support Development Mode/);
+});
+
+test('runCli shows support-development error for unsupported command when enabled', async () => {
+  await assert.rejects(
+    runCli(['--support-development', 'future', 'thing'], {
+      stdout: { write() {} },
+      stderr: { write() {} },
+      client: createClient(),
+    }),
+    /maintainer approval/,
   );
 });
 

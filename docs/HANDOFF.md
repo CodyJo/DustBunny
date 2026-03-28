@@ -16,6 +16,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - Added `docs/EXPERIMENTAL.md` for hidden DB/admin commands that require explicit opt-in
 - Added `docs/ARCHITECTURE.md` with Mermaid diagrams for routing, dependencies, and experimental gating
 - Added agent-oriented documentation and Mermaid flow guidance for using DustBunny safely in coding-agent workflows
+- Added opt-in Support Development Mode docs and a local setup script for enabling it
 
 ## Pending
 
@@ -34,6 +35,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - Official passthrough falls back to DustBunny's native implementation only when the command has a compatible local path
 - Official passthrough can prefer a configured binary, a local `bunny` binary, or `npx`, in that order
 - Routing flags now exist: `--prefer-official`, `--prefer-native`, `--no-fallback`
+- Support Development Mode can be enabled by flag, env var, or `~/.config/dustbunny.json`, but upstream merges still require maintainer approval
 
 ## Read First
 
@@ -41,6 +43,8 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - `docs/API-MAPPING.md`
 - `docs/EXPERIMENTAL.md`
 - `docs/ARCHITECTURE.md`
+- `docs/SUPPORT-DEVELOPMENT.md`
+- `scripts/setup.mjs`
 - `docs/RELEASE-CHECKLIST.md`
 - `scripts/check-official-cli.mjs`
 - `src/config.mjs`

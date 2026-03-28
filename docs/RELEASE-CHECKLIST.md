@@ -36,6 +36,7 @@ Check:
 - `--prefer-official`, `--prefer-native`, and `--no-fallback` behavior still matches docs
 - official CLI resolution order still matches docs
 - hidden experimental commands still require `--experimental` or `DUSTBUNNY_ENABLE_EXPERIMENTAL=1`
+- Support Development Mode still stays opt-in through `--support-development`, `DUSTBUNNY_SUPPORT_DEVELOPMENT=1`, or `~/.config/dustbunny.json`
 
 ## 4. Verify dependencies and runtime assumptions
 
@@ -55,4 +56,5 @@ Call out:
 - official CLI parity changes
 - new DustBunny-only commands or behaviors
 - changes to experimental DB support
+- changes to support-development workflow or setup behavior
 - changes in fallback behavior

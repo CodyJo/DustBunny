@@ -155,6 +155,7 @@ Optional but important runtime dependency:
 
 - the published official Bunny CLI package `@bunny.net/cli` for parity with documented Bunny commands
 - `--experimental` or `DUSTBUNNY_ENABLE_EXPERIMENTAL=1` if you want the hidden experimental command surface
+- `~/.config/dustbunny.json` if you want persistent DustBunny-only feature settings such as Support Development Mode
 
 ## Best Use With Coding Agents
 
@@ -170,6 +171,7 @@ Best practices:
 - keep experimental commands disabled unless an agent is explicitly doing preview or operator-only work
 - pin `DUSTBUNNY_OFFICIAL_CLI_VERSION` in CI if you want reproducible releases, then re-run parity checks against `latest` before publishing a new DustBunny version
 - have agents run `npm run check:official-cli` as part of release prep so routing drift against `@bunny.net/cli` is caught before publish
+- if an agent hits a real Bunny workflow gap, enable Support Development Mode instead of spreading the workaround across unrelated scripts
 
 Agent workflow example:
 
@@ -188,6 +190,28 @@ flowchart TD
   I --> J
   J --> K[Verify with wait or follow-up read commands]
 ```
+
+## Support Development Mode
+
+This is a good idea as an opt-in workflow, not as a default behavior.
+
+Support Development Mode is for users whose coding agents need to add local DustBunny support for Bunny workflows that are not covered yet by the documented official CLI or by DustBunny itself.
+
+It is intentionally local-first:
+
+- your agent can extend your local DustBunny clone
+- your team can use that improvement immediately
+- upstream inclusion still requires maintainer approval
+
+Enable it with:
+
+```bash
+npm run setup
+```
+
+The setup script checks local dependencies and asks whether you want to enable Support Development Mode. You can also opt in with `--support-development` or `DUSTBUNNY_SUPPORT_DEVELOPMENT=1`.
+
+For the full workflow, see [docs/SUPPORT-DEVELOPMENT.md](docs/SUPPORT-DEVELOPMENT.md).
 
 ## Fallback logic
 

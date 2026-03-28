@@ -68,3 +68,18 @@ flowchart TD
   K -- Yes --> J
   J --> M[Verify result with read or wait command]
 ```
+
+## Support Development Flow
+
+```mermaid
+flowchart TD
+  A[Agent hits unsupported Bunny workflow] --> B{Support Development Mode enabled?}
+  B -- No --> C[Show normal unsupported command error]
+  B -- Yes --> D[Show local extension guidance]
+  D --> E[Patch local DustBunny]
+  E --> F[Run npm test]
+  F --> G[Run npm run check:official-cli]
+  G --> H[Use local improvement]
+  H --> I[Propose upstream merge]
+  I --> J[Maintainer approval required]
+```

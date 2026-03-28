@@ -39,6 +39,8 @@ These commands are translated to `npx -y @bunny.net/cli@latest ...`.
 
 These are the commands that are new to DustBunny and not part of the documented official Bunny CLI surface.
 
+If a user or coding agent hits a Bunny workflow that is covered by neither the official CLI nor DustBunny, use the opt-in local extension workflow in [docs/SUPPORT-DEVELOPMENT.md](docs/SUPPORT-DEVELOPMENT.md).
+
 ### Apps
 
 - `apps`
