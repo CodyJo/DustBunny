@@ -6,6 +6,26 @@ This repo is derived from the private Back Office CLI, but it does not include y
 
 As of March 20, 2026, DustBunny is designed to prefer the official Bunny CLI package `@bunny.net/cli` for documented supported commands, then fall back to DustBunny's custom implementation when that mapped command has a compatible local equivalent.
 
+## Why This Exists
+
+DustBunny came out of a real migration onto Bunny where the official tools and docs covered a lot, but not every operational step I needed in the form I needed it.
+
+The gap-fillers in this repo were built by:
+
+- using the documented Bunny API where it existed
+- inspecting Bunny response shapes and behavior in live usage
+- normalizing and preserving payloads so repeated changes would not stomp on unrelated config
+- adding operational helpers around app specs, env sync, endpoint mutation, DNS updates, health checks, and database inspection
+
+The reverse-engineered parts are mostly the native DustBunny command paths that had to account for:
+
+- inconsistent response casing
+- partial or evolving endpoint payloads
+- app/template patch preservation
+- experimental Bunny Database control-plane behavior
+
+In short: this project exists because the migration needed a tool that could cover the supported Bunny surface first, then fill the practical gaps safely where the official CLI or docs were not enough yet.
+
 ## Install
 
 ```bash
@@ -128,6 +148,7 @@ Why the coverage is selective:
 
 - DustBunny only delegates commands that are documented by the official package or can be translated safely.
 - App, DNS, Pull Zone, and several advanced DB inspection commands stay local because DustBunny's command model is different or richer than the official CLI's documented interface.
+- Those local paths are the parts most shaped by reverse engineering during the Bunny migration work.
 
 Routing controls:
 

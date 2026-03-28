@@ -29,6 +29,8 @@ These commands are translated to `npx -y @bunny.net/cli@latest ...`.
 
 These commands stay in DustBunny because the official CLI readme does not document an equivalent call, or DustBunny exposes a different command model.
 
+These native paths are also the parts most influenced by reverse engineering during a migration onto Bunny: they were built to fill practical gaps around payload preservation, response normalization, and missing workflow coverage.
+
 ### Apps
 
 - `apps`
