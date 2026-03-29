@@ -575,6 +575,40 @@ test('buildAppSpec preserves probes from container templates', () => {
   });
 });
 
+test('buildAppSpec preserves public endpoint addresses', () => {
+  const spec = buildAppSpec(createApp({
+    containerTemplates: [
+      {
+        ...createApp().containerTemplates[0],
+        endpoints: [
+          {
+            displayName: 'edge-cdn',
+            type: 'cdn',
+            publicHost: 'edge.example.bunny.run',
+            publicUrl: 'https://edge.example.bunny.run',
+            cdn: {
+              portMappings: [{ containerPort: 3000 }],
+              pullZoneId: 'pz_1',
+            },
+          },
+          {
+            displayName: 'agent-anycast',
+            type: 'anycast',
+            publicHost: '198.51.100.10',
+            anycast: {
+              portMappings: [{ containerPort: 8140, exposedPort: 8140 }],
+            },
+          },
+        ],
+      },
+    ],
+  }));
+
+  assert.equal(spec.containerTemplate.endpoints[0].publicHost, 'edge.example.bunny.run');
+  assert.equal(spec.containerTemplate.endpoints[0].publicUrl, 'https://edge.example.bunny.run');
+  assert.equal(spec.containerTemplate.endpoints[1].publicHost, '198.51.100.10');
+});
+
 test('createAppFromSpec creates a multi-container app from a spec file', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'bunny-cli-create-spec-'));
   const specFile = join(dir, 'search-spec.json');

@@ -104,6 +104,9 @@ function normalizeEndpoints(endpoints) {
       type,
     };
 
+    if (endpoint.publicHost) normalized.publicHost = endpoint.publicHost;
+    if (endpoint.publicUrl) normalized.publicUrl = endpoint.publicUrl;
+
     if (type === 'cdn') {
       normalized.cdn = {
         portMappings: endpoint.cdn?.portMappings || endpoint.portMappings || [],

@@ -281,6 +281,7 @@ Routing controls:
 ### State-preservation fallback
 
 - App patch operations preserve existing `packageId`, `imageRegistryId`, `entryPoint`, and `volumeMounts` when present.
+- App spec export preserves endpoint `publicHost` / `publicUrl` fields when Bunny returns them.
 - Endpoint patching preserves supported endpoint data instead of rebuilding every field from scratch.
 - `env merge` merges on top of the current Bunny state instead of replacing it.
 - `dns set` updates an existing record with the same name and type before creating a new one.
