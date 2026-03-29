@@ -18,12 +18,17 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - Added agent-oriented documentation and Mermaid flow guidance for using DustBunny safely in coding-agent workflows
 - Added opt-in Support Development Mode docs and a local setup script for enabling it
 - Expanded regression coverage across native app, DNS, Pull Zone, health, setup, official passthrough error handling, and experimental DB routing
+- Added mocked tests for `dns set` (create, update, validation, default ttl), `dns delete` (validation, confirmation), and `pz ssl` (cert + forceSSL sequence, validation)
+- Fixed dead ternary in `bin/dustbunny.mjs` — CliError exits 1, unexpected errors exit 2
+- Confirmed `dustbunny` npm package name is available (2026-03-29)
+- Added Bunny app probe preservation and probe-aware native `wait` behavior for multi-container support-development workflows
+- Coverage: 88.85% lines, 68.32% branch, 73 tests passing
 
 ## Pending
 
-- If desired, publish to npm after confirming package naming
-- Expand test coverage for DNS and Pull Zone mutations with mocked clients
+- Published to npm as `dustbunny@0.1.0` on 2026-03-29
 - If desired, add coverage for setup-script internals and a few remaining low-level error branches in `src/cli.mjs`
+- If desired, add CI/CD pipeline (GitHub Actions or CodeBuild)
 
 ## Architectural Decisions
 
@@ -38,7 +43,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - Official passthrough can prefer a configured binary, a local `bunny` binary, or `npx`, in that order
 - Routing flags now exist: `--prefer-official`, `--prefer-native`, `--no-fallback`
 - Support Development Mode can be enabled by flag, env var, or `~/.config/dustbunny.json`, but upstream merges still require maintainer approval
-- Current local coverage via `node --test --experimental-test-coverage` is `88.49%` lines overall, with `src/cli.mjs` at `81.19%`
+- Current local coverage via `node --test --experimental-test-coverage` is `88.85%` lines overall, with `src/cli.mjs` at `81.29%`
 
 ## Read First
 
@@ -64,5 +69,6 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 
 ## Recommended Next Steps
 
-- Add mocked tests for `dns set`, `dns delete`, and `pz ssl`
+- Run `npm publish` to make DustBunny available globally
 - Consider splitting the CLI into smaller modules if the command surface grows
+- Add CI/CD pipeline for automated testing on PRs

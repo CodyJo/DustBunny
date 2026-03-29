@@ -26,5 +26,6 @@
     "type": "git",
     "url": "git@github.com:CodyJo/DustBunny.git"
   },
+  "author": "Cody Jo Eflin",
   "license": "MIT"
 }

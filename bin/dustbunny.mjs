@@ -5,5 +5,5 @@ import { runCli } from '../src/cli.mjs';
 
 runCli().catch((error) => {
   process.stderr.write(`${error.message}\n`);
-  process.exit(error instanceof CliError ? 1 : 1);
+  process.exit(error instanceof CliError ? 1 : 2);
 });

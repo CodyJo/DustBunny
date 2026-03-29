@@ -76,6 +76,13 @@ function createApp(overrides = {}) {
         publicHost: 'demo.example.com',
         cdn: { portMappings: [{ containerPort: 3000 }] },
       }],
+      probes: {
+        readiness: {
+          type: 'http',
+          http: { path: '/ready', port: 3000 },
+          initialDelaySeconds: 5,
+        },
+      },
     }],
     ...overrides,
   };
@@ -491,6 +498,13 @@ test('applyAppSpec patches image, scale, env, and endpoints from exported spec',
     type: 'cdn',
     cdn: { portMappings: [{ containerPort: 4000 }] },
   }];
+  spec.containerTemplate.probes = {
+    readiness: {
+      type: 'http',
+      http: { path: '/api/health', port: 4000 },
+      initialDelaySeconds: 20,
+    },
+  };
   writeFileSync(specFile, `${JSON.stringify(spec, null, 2)}\n`, 'utf8');
 
   try {
@@ -506,6 +520,15 @@ test('applyAppSpec patches image, scale, env, and endpoints from exported spec',
       type: 'cdn',
       cdn: { portMappings: [{ containerPort: 4000 }] },
     }]);
+    assert.deepEqual(patch.containerTemplates[0].probes, {
+      startup: undefined,
+      readiness: {
+        type: 'http',
+        http: { path: '/api/health', port: 4000 },
+        initialDelaySeconds: 20,
+      },
+      liveness: undefined,
+    });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -535,6 +558,19 @@ test('buildAppSpec includes all container templates for multi-container apps', (
   assert.equal(spec.containerTemplates[1].image, 'acme/demo-worker:v1');
 });
 
+test('buildAppSpec preserves probes from container templates', () => {
+  const spec = buildAppSpec(createApp());
+  assert.deepEqual(spec.containerTemplate.probes, {
+    startup: undefined,
+    readiness: {
+      type: 'http',
+      http: { path: '/ready', port: 3000 },
+      initialDelaySeconds: 5,
+    },
+    liveness: undefined,
+  });
+});
+
 test('createAppFromSpec creates a multi-container app from a spec file', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'bunny-cli-create-spec-'));
   const specFile = join(dir, 'search-spec.json');
@@ -550,6 +586,12 @@ test('createAppFromSpec creates a multi-container app from a spec file', async (
         imageRegistryId: '6323',
         environmentVariables: [{ name: 'JWT_SECRET', value: 'secret' }],
         endpoints: [{ displayName: 'search-cdn', type: 'cdn', cdn: { portMappings: [{ containerPort: 8088 }] } }],
+        probes: {
+          readiness: {
+            type: 'http',
+            http: { path: '/healthz', port: 8088 },
+          },
+        },
       },
       {
         name: 'searxng',
@@ -585,6 +627,14 @@ test('createAppFromSpec creates a multi-container app from a spec file', async (
     assert.equal(posts[0].containerTemplates[0].imageNamespace, 'ghcr.io');
     assert.equal(posts[0].containerTemplates[0].imageName, 'codyjo/search-openresty');
     assert.equal(posts[0].containerTemplates[1].name, 'searxng');
+    assert.deepEqual(posts[0].containerTemplates[0].probes, {
+      startup: undefined,
+      readiness: {
+        type: 'http',
+        http: { path: '/healthz', port: 8088 },
+      },
+      liveness: undefined,
+    });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -628,6 +678,7 @@ test('applyAppSpec can add a second container template from spec', async () => {
 test('waitForApp polls until running and healthy', async () => {
   const stdout = { chunks: [], write(chunk) { this.chunks.push(chunk); } };
   let reads = 0;
+  const healthUrls = [];
   const client = {
     stdout,
     async get() {
@@ -643,13 +694,17 @@ test('waitForApp polls until running and healthy', async () => {
   await waitForApp(client, 'app_123', '30', '1', {
     now: () => now,
     sleep: async () => { now += 1000; },
-    fetchImpl: async () => ({
-      status: reads === 1 ? 503 : 200,
-      async text() { return ''; },
-    }),
+    fetchImpl: async (url) => {
+      healthUrls.push(url);
+      return {
+        status: reads === 1 ? 503 : 200,
+        async text() { return ''; },
+      };
+    },
   });
 
   assert.match(stdout.chunks.join(''), /App demo-web is ready\./);
+  assert.equal(healthUrls.at(-1), 'https://demo-web.bunnyapp.io/ready');
 });
 
 test('waitForApp treats active status as ready when health passes', async () => {
@@ -1106,6 +1161,113 @@ test('runCli routes pull zone commands', async () => {
     disableLegacyPassthrough: true,
   });
   assert.equal(purgeClient.calls.post[0].path, '/pullzone/9001/purgeCache');
+});
+
+test('dns set validates required arguments', async () => {
+  const client = createOpsClient();
+  await assert.rejects(
+    () => runCli(['dns', 'set', '77', 'api', 'A'], {
+      client,
+      stdout: client.stdout,
+      disableLegacyPassthrough: true,
+    }),
+    /Usage: dns set/,
+  );
+});
+
+test('dns set creates new record with correct body shape', async () => {
+  const client = createOpsClient();
+  await runCli(['dns', 'set', '77', 'api', 'A', '203.0.113.10', '120'], {
+    client,
+    stdout: client.stdout,
+    disableLegacyPassthrough: true,
+  });
+  const put = client.calls.put[0];
+  assert.equal(put.path, '/dnszone/77/records');
+  assert.equal(put.body.Type, 0);
+  assert.equal(put.body.Name, 'api');
+  assert.equal(put.body.Value, '203.0.113.10');
+  assert.equal(put.body.Ttl, 120);
+  assert.match(client.stdout.chunks.join(''), /Created A api -> 203\.0\.113\.10/);
+});
+
+test('dns set updates existing record and writes update message', async () => {
+  const client = createOpsClient();
+  await runCli(['dns', 'set', '77', 'www', 'CNAME', 'new.example.com', '600'], {
+    client,
+    stdout: client.stdout,
+    disableLegacyPassthrough: true,
+  });
+  const post = client.calls.post[0];
+  assert.equal(post.path, '/dnszone/77/records/10');
+  assert.equal(post.body.Name, 'www');
+  assert.equal(post.body.Type, 2);
+  assert.equal(post.body.Value, 'new.example.com');
+  assert.equal(post.body.Ttl, 600);
+  assert.match(client.stdout.chunks.join(''), /Updated CNAME www -> new\.example\.com/);
+});
+
+test('dns set uses default ttl of 300', async () => {
+  const client = createOpsClient();
+  await runCli(['dns', 'set', '77', 'test', 'TXT', 'v=spf1'], {
+    client,
+    stdout: client.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.equal(client.calls.put[0].body.Ttl, 300);
+});
+
+test('dns delete validates required arguments', async () => {
+  const client = createOpsClient();
+  await assert.rejects(
+    () => runCli(['dns', 'delete', '77'], {
+      client,
+      stdout: client.stdout,
+      disableLegacyPassthrough: true,
+    }),
+    /Usage: dns delete/,
+  );
+});
+
+test('dns delete calls correct endpoint and writes confirmation', async () => {
+  const client = createOpsClient();
+  await runCli(['dns', 'delete', '77', '10'], {
+    client,
+    stdout: client.stdout,
+    disableLegacyPassthrough: true,
+  });
+  assert.deepEqual(client.calls.delete, ['/dnszone/77/records/10']);
+  assert.match(client.stdout.chunks.join(''), /Deleted DNS record 10 from zone 77/);
+});
+
+test('pz ssl calls loadFreeCertificate then setForceSSL', async () => {
+  const client = createOpsClient();
+  await runCli(['pz', 'ssl', '9001', 'cdn.example.com'], {
+    client,
+    stdout: client.stdout,
+    disableLegacyPassthrough: true,
+  });
+  // First call: load free cert
+  assert.equal(client.calls.get.at(-1), '/pullzone/loadFreeCertificate?hostname=cdn.example.com');
+  // Second call: force SSL
+  const sslPost = client.calls.post.find((c) => c.path.includes('setForceSSL'));
+  assert.ok(sslPost, 'setForceSSL was called');
+  assert.equal(sslPost.path, '/pullzone/9001/setForceSSL');
+  assert.equal(sslPost.body.Hostname, 'cdn.example.com');
+  assert.equal(sslPost.body.ForceSSL, true);
+  assert.match(client.stdout.chunks.join(''), /Activated SSL for cdn\.example\.com on pull zone 9001/);
+});
+
+test('pz ssl validates required arguments', async () => {
+  const client = createOpsClient();
+  await assert.rejects(
+    () => runCli(['pz', 'ssl', '9001'], {
+      client,
+      stdout: client.stdout,
+      disableLegacyPassthrough: true,
+    }),
+    /Usage: pz ssl/,
+  );
 });
 
 test('runCli health command reports response body and errors', async () => {
