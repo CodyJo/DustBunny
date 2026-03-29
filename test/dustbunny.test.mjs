@@ -524,7 +524,9 @@ test('applyAppSpec patches image, scale, env, and endpoints from exported spec',
       startup: undefined,
       readiness: {
         type: 'http',
-        http: { path: '/api/health', port: 4000 },
+        httpGet: {
+          request: { path: '/api/health', portNumber: 4000 },
+        },
         initialDelaySeconds: 20,
       },
       liveness: undefined,
@@ -564,7 +566,9 @@ test('buildAppSpec preserves probes from container templates', () => {
     startup: undefined,
     readiness: {
       type: 'http',
-      http: { path: '/ready', port: 3000 },
+      httpGet: {
+        request: { path: '/ready', portNumber: 3000 },
+      },
       initialDelaySeconds: 5,
     },
     liveness: undefined,
@@ -631,7 +635,9 @@ test('createAppFromSpec creates a multi-container app from a spec file', async (
       startup: undefined,
       readiness: {
         type: 'http',
-        http: { path: '/healthz', port: 8088 },
+        httpGet: {
+          request: { path: '/healthz', portNumber: 8088 },
+        },
       },
       liveness: undefined,
     });

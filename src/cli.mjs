@@ -126,6 +126,41 @@ function normalizeEndpoints(endpoints) {
   });
 }
 
+function normalizeHttpProbe(probe) {
+  if (!probe) return probe;
+  const normalized = { ...probe };
+  const httpSource = probe.httpGet || probe.http;
+  if (httpSource) {
+    const requestSource = httpSource.request || httpSource;
+    const { request: _request, path: _path, port: _port, portNumber: _portNumber, ...httpRest } = httpSource;
+    normalized.httpGet = {
+      ...httpRest,
+      request: {
+        ...(_request || {}),
+        path: requestSource.path,
+        portNumber: requestSource.portNumber ?? (requestSource.port === undefined ? undefined : Number(requestSource.port)),
+      },
+    };
+  }
+  if (probe.tcpSocket) {
+    normalized.tcpSocket = {
+      ...probe.tcpSocket,
+      port: probe.tcpSocket.port === undefined ? undefined : Number(probe.tcpSocket.port),
+    };
+  }
+  delete normalized.http;
+  return normalized;
+}
+
+function normalizeProbes(probes) {
+  if (!probes) return undefined;
+  return {
+    startup: normalizeHttpProbe(probes.startup),
+    readiness: normalizeHttpProbe(probes.readiness),
+    liveness: normalizeHttpProbe(probes.liveness),
+  };
+}
+
 function buildTemplatePatch(template = {}, overrides = {}) {
   const payload = {
     name: overrides.name ?? template.name,
@@ -140,11 +175,13 @@ function buildTemplatePatch(template = {}, overrides = {}) {
   const imageRegistryId = overrides.imageRegistryId ?? template.imageRegistryId;
   const entryPoint = overrides.entryPoint ?? template.entryPoint;
   const volumeMounts = overrides.volumeMounts ?? template.volumeMounts;
+  const probes = overrides.probes ?? template.probes;
   if (template.id) payload.id = template.id;
   if (template.packageId) payload.packageId = template.packageId;
   if (imageRegistryId) payload.imageRegistryId = imageRegistryId;
   if (entryPoint) payload.entryPoint = entryPoint;
   if (volumeMounts) payload.volumeMounts = volumeMounts;
+  if (probes) payload.probes = normalizeProbes(probes);
 
   return payload;
 }
@@ -158,6 +195,7 @@ function buildAppSpec(app) {
     imagePullPolicy: template.imagePullPolicy || null,
     entryPoint: template.entryPoint || null,
     volumeMounts: template.volumeMounts || [],
+    probes: normalizeProbes(template.probes) || null,
     environmentVariables: dedupeEnvVars(template.environmentVariables || []),
     endpoints: normalizeEndpoints(template.endpoints),
   }));
@@ -576,6 +614,7 @@ async function createAppFromSpec(client, file) {
         imagePullPolicy: template.imagePullPolicy || 'always',
         entryPoint: template.entryPoint || undefined,
         volumeMounts: template.volumeMounts || undefined,
+        probes: template.probes || undefined,
         environmentVariables: dedupeEnvVars(template.environmentVariables || []),
         endpoints: normalizeEndpoints(template.endpoints || []),
       });
@@ -743,6 +782,7 @@ async function applyAppSpec(client, id, file) {
         imagePullPolicy: specTemplate.imagePullPolicy ?? template.imagePullPolicy,
         entryPoint: specTemplate.entryPoint ?? template.entryPoint,
         volumeMounts: specTemplate.volumeMounts ?? template.volumeMounts,
+        probes: specTemplate.probes ?? template.probes,
         environmentVariables: specTemplate.environmentVariables ? dedupeEnvVars(specTemplate.environmentVariables) : dedupeEnvVars(template.environmentVariables || []),
         endpoints: specTemplate.endpoints ? normalizeEndpoints(specTemplate.endpoints) : normalizeEndpoints(template.endpoints),
       });
@@ -771,7 +811,20 @@ async function waitForApp(client, id, timeoutSeconds = '300', intervalSeconds = 
 
     if (endpoint) {
       try {
-        const response = await fetchImpl(`https://${endpoint}/health`, { signal: AbortSignal.timeout(5000) });
+        const publicTemplate = (app.containerTemplates || []).find((template) => (template.endpoints || []).length > 0)
+          || app.containerTemplates?.[0]
+          || {};
+        const probePath = publicTemplate.probes?.readiness?.httpGet?.request?.path
+          || publicTemplate.probes?.readiness?.httpGet?.path
+          || publicTemplate.probes?.readiness?.http?.path
+          || publicTemplate.probes?.liveness?.httpGet?.request?.path
+          || publicTemplate.probes?.liveness?.httpGet?.path
+          || publicTemplate.probes?.liveness?.http?.path
+          || publicTemplate.probes?.startup?.httpGet?.request?.path
+          || publicTemplate.probes?.startup?.httpGet?.path
+          || publicTemplate.probes?.startup?.http?.path
+          || '/health';
+        const response = await fetchImpl(`https://${endpoint}${probePath}`, { signal: AbortSignal.timeout(5000) });
         health = response.status;
       } catch {
         health = null;

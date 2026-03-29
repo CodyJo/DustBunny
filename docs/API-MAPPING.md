@@ -54,6 +54,10 @@ If a user or coding agent hits a Bunny workflow that is covered by neither the o
 - `app apply`
 - `wait`
 
+Notes:
+- `app spec`, `app create-spec`, and `app apply` preserve multi-container `volumeMounts` and probe metadata when those fields are present.
+- `wait` prefers the first public container's readiness probe path when one exists, then liveness, then startup, and falls back to `/health`.
+
 ### Env / Endpoints / DNS / Pull Zones / Health
 
 - `env sync`

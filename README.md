@@ -311,7 +311,7 @@ API notes:
 
 - App commands use `/mc/apps`.
 - `app spec` exports a normalized shape suitable for `app apply` or `app create-spec`.
-- `wait` checks Bunny app status and then probes `https://<displayEndpoint>/health` when an endpoint exists.
+- `wait` checks Bunny app status and then probes the first public container's HTTP probe path when present, falling back to `https://<displayEndpoint>/health`.
 - These commands currently run through DustBunny's native implementation, not official passthrough.
 
 ### Environment variables
