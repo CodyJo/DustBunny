@@ -617,6 +617,9 @@ test('createAppFromSpec creates a multi-container app from a spec file', async (
     runtimeType: 'shared',
     autoScaling: { min: 1, max: 1 },
     regionSettings: { requiredRegionIds: ['DE'] },
+    volumes: [
+      { name: 'search-cache', size: 10 },
+    ],
     containerTemplates: [
       {
         name: 'edge',
@@ -662,6 +665,7 @@ test('createAppFromSpec creates a multi-container app from a spec file', async (
     await createAppFromSpec(client, specFile);
     assert.equal(posts.length, 1);
     assert.equal(posts[0].containerTemplates.length, 2);
+    assert.deepEqual(posts[0].volumes, [{ name: 'search-cache', size: 10 }]);
     assert.equal(posts[0].containerTemplates[0].imageNamespace, 'ghcr.io');
     assert.equal(posts[0].containerTemplates[0].imageName, 'codyjo/search-openresty');
     assert.equal(posts[0].containerTemplates[1].name, 'searxng');

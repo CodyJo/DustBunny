@@ -211,6 +211,7 @@ function buildAppSpec(app) {
     status: app.status,
     runtimeType: app.runtimeType || 'shared',
     autoScaling: app.autoScaling || null,
+    volumes: app.volumes || [],
     regionSettings: app.regionSettings || null,
     displayEndpoint: app.displayEndpoint?.address || null,
     containerTemplate: template,
@@ -626,6 +627,7 @@ async function createAppFromSpec(client, file) {
 
   if (!payload.name) fail('App spec name is required.');
   if (desired.regionSettings) payload.regionSettings = desired.regionSettings;
+  if (desired.volumes) payload.volumes = desired.volumes;
 
   const app = await client.post('/mc/apps', payload);
   client.stdout.write(`${JSON.stringify({
@@ -794,6 +796,9 @@ async function applyAppSpec(client, id, file) {
 
   if (desired.regionSettings) {
     payload.regionSettings = desired.regionSettings;
+  }
+  if (desired.volumes) {
+    payload.volumes = desired.volumes;
   }
 
   await patchApp(client, id, payload);

@@ -22,6 +22,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - Fixed dead ternary in `bin/dustbunny.mjs` — CliError exits 1, unexpected errors exit 2
 - Confirmed `dustbunny` npm package name is available (2026-03-29)
 - Added Bunny app probe preservation and probe-aware native `wait` behavior for multi-container support-development workflows
+- Added app-level Bunny volume passthrough in native `app spec`, `app create-spec`, and `app apply`, so stateful Magic Containers can preserve `volumes` alongside `volumeMounts`
 - Coverage: 88.85% lines, 68.32% branch, 73 tests passing
 
 ## Pending
@@ -29,6 +30,7 @@ DustBunny is the public extraction of the Bunny CLI that previously lived inside
 - Published to npm as `dustbunny@0.1.0` on 2026-03-29
 - If desired, add coverage for setup-script internals and a few remaining low-level error branches in `src/cli.mjs`
 - If desired, add CI/CD pipeline (GitHub Actions or CodeBuild)
+- Re-run local tests after the new native app `volumes` passthrough change and update the recorded coverage figures
 
 ## Architectural Decisions
 
