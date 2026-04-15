@@ -1846,6 +1846,12 @@ async function runCli(argv = process.argv.slice(2), options = {}) {
     return 0;
   }
 
+  if (command === 'loadtest') {
+    const { loadtest: runLoadTest } = await import('./loadtest.mjs');
+    await runLoadTest(['', '', ...args]);
+    return 0;
+  }
+
   if (command === 'db') {
     assertExperimentalEnabled(args, routing, env);
     try {
